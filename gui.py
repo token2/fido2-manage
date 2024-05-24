@@ -266,7 +266,7 @@ def refresh_combobox():
 def show_output_in_new_window(output, device_digit):
     # Create a new window
     new_window = tk.Toplevel(root)
-    new_window.geometry("700x650")
+    new_window.geometry("800x650")
     new_window.title("Resident Keys / Passkeys")
 
     # Create a Treeview widget for displaying output
