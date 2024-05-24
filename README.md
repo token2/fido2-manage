@@ -76,5 +76,5 @@ If no errors are shown, then you can launch the GUI:
 cd fido2-manage
 ```
 ```bash
-python2 gui.py
+python3 gui.py
 ```
