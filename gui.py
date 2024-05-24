@@ -293,7 +293,7 @@ def show_output_in_new_window(output, device_digit):
         elif "Credential ID: " in line and "User: " in line:
             credential_id = line.split("Credential ID: ")[1].split(",")[0].strip()
             user = line.split("User: ")[1].strip()
-            user = user.replace(credential_id, "").strip()
+            user = re.sub(re.escape(credential_id), "", user).strip()
             tree_new_window.insert("", tk.END, values=(current_domain, credential_id, user))
 
     # Function to handle show value button click
