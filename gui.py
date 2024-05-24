@@ -204,19 +204,20 @@ def on_passkeys_button_click():
                             domains.append(match.group(1))
                     
                     # Execute the command for each domain
-                    cumulated_output = ""
+                    cumulated_output = []
                     for domain in domains:
                         
                         domain_command = [FIDO_COMMAND, '-residentKeys', '-domain', domain, '-pin', pin, '-device', device_digit]
                         domain_result = subprocess.run(domain_command, capture_output=True, text=True)
                          
                         if domain_result.returncode == 0:
-                            cumulated_output += domain_result.stdout
+                            cumulated_output.append(f"Domain: {domain}\n{domain_result.stdout}")
                         else:
                             raise subprocess.CalledProcessError(domain_result.returncode, domain_command)
 
                     # Show the cumulated output in a new window
-                    show_output_in_new_window(cumulated_output, device_digit)
+                    cumulated_output_str = "\n\n".join(cumulated_output)
+                    show_output_in_new_window(cumulated_output_str, device_digit)
                 else:
                     raise subprocess.CalledProcessError(result.returncode, command)
             except Exception as e:
@@ -258,16 +259,20 @@ def refresh_combobox():
     device_combobox['values'] = device_list  # Update the combobox values
     
     
+ 
+ 
+
 # Function to show the output in a new window
-def show_output_in_new_window(output,device_digit):
+def show_output_in_new_window(output, device_digit):
     # Create a new window
     new_window = tk.Toplevel(root)
-    new_window.geometry("700x650") 
+    new_window.geometry("700x650")
     new_window.title("Resident Keys / Passkeys")
 
     # Create a Treeview widget for displaying output
-    tree_new_window = ttk.Treeview(new_window, columns=("Credential ID", "User"), show="headings")
+    tree_new_window = ttk.Treeview(new_window, columns=("Domain", "Credential ID", "User"), show="headings")
     # Set column headings
+    tree_new_window.heading("Domain", text="Domain")
     tree_new_window.heading("Credential ID", text="Credential ID")
     tree_new_window.heading("User", text="User")
     tree_new_window.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
@@ -281,17 +286,20 @@ def show_output_in_new_window(output,device_digit):
     tree_new_window.configure(xscrollcommand=tree_scrollbar_x.set)
 
     # Parse the output and insert into the Treeview
+    current_domain = ""
     for line in output.splitlines():
-        if "Credential ID: " in line and "User: " in line:
+        if line.startswith("Domain: "):
+            current_domain = line.split("Domain: ")[1].strip()
+        elif "Credential ID: " in line and "User: " in line:
             credential_id = line.split("Credential ID: ")[1].split(",")[0].strip()
             user = line.split("User: ")[1].strip()
-            tree_new_window.insert("", tk.END, values=(credential_id, user))
+            tree_new_window.insert("", tk.END, values=(current_domain, credential_id, user))
 
     # Function to handle show value button click
     def show_selected_value():
         selected_item = tree_new_window.selection()
         if selected_item:
-            value = tree_new_window.item(selected_item, 'values')[0]  # Get the value of the selected item
+            value = tree_new_window.item(selected_item, 'values')[1]  # Get the Credential ID of the selected item
             new_window.destroy()
             command = [FIDO_COMMAND, '-delete', '-device', device_digit, '-credential', value]
             if sys.platform.startswith('win'):
@@ -302,6 +310,7 @@ def show_output_in_new_window(output,device_digit):
     # Create the "Show Value" button
     show_value_button = tk.Button(new_window, text="delete passkey", command=show_selected_value)
     show_value_button.pack(pady=10)
+
 
 
 
