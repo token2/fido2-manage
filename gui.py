@@ -262,7 +262,7 @@ def refresh_combobox():
 def show_output_in_new_window(output,device_digit):
     # Create a new window
     new_window = tk.Toplevel(root)
-    new_window.geometry("500x450") 
+    new_window.geometry("700x650") 
     new_window.title("Resident Keys / Passkeys")
 
     # Create a Treeview widget for displaying output
@@ -312,7 +312,7 @@ def show_about_message():
 
 # Create the main application window
 root = tk.Tk()
-root.geometry("700x500")  # Width x Height
+root.geometry("700x600")  # Width x Height
 root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
 
 # Create a frame for the first three elements
