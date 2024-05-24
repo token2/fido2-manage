@@ -64,9 +64,11 @@ wget https://raw.githubusercontent.com/token2/fido2-manage/main/install-fido2-ma
 
 
 ```bash
-chmod +x ./install-fido2-manage.sh & ./install-fido2-manage.sh
+chmod +x ./install-fido2-manage.sh 
 ```
-
+```bash
+./install-fido2-manage.sh
+```
 
 If no errors are shown, then you can launch the GUI:
 
