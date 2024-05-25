@@ -23,7 +23,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Addendum: Copyright (c) 2024 TOKEN2 Sàrl. All rights reserved.
+Addendum: 
+Copyright (c) 2024 TOKEN2 Sàrl. All rights reserved.
 1) Modifications of libfido2 library allowing the sending of PIN via command line argument.
 2) fido2-manage.sh - Human-readable device names and arguments.
 3) gui.py - GUI interface for passkey management.
