@@ -134,8 +134,11 @@ print_rk(const fido_credman_rk_t *rk, size_t idx)
 	type = cose_string(fido_cred_type(cred));
 	prot = prot_string(fido_cred_prot(cred));
 
-	printf("%02u: %s %s %s %s %s\n", (unsigned)idx, id,
-	    fido_cred_display_name(cred), user_id, type, prot);
+	/* commenting out the original code, was not giving the user login name, only display name */
+	/*printf("%02u: %s %s %s %s %s %s\n", (unsigned)idx, id,	    fido_cred_display_name(cred), user_id, type, port); */
+	
+	printf("%02u:  %s %s %s %s %s %s \n", (unsigned)idx, id,
+		fido_cred_display_name(cred), fido_cred_user_name(cred), user_id, type, prot);
 
 	free(user_id);
 	free(id);
