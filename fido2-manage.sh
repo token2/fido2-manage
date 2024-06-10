@@ -31,6 +31,7 @@ while [[ "$#" -gt 0 ]]; do
         -device) device="$2"; shift ;;
         -pin) pin="$2"; shift ;;
         -storage) storage=true ;;
+        -fingerprint) fingerprint=true ;;        
         -residentKeys) residentKeys=true ;;
         -domain) domain="$2"; shift ;;
         -delete) delete=true ;;
@@ -101,7 +102,7 @@ if $help; then
 fi
 
 # Check if no arguments are specified, then show help
-if ! $list && ! $info && [[ -z $device ]] && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $help; then
+if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $help; then
     show_help
     exit 1
 fi
@@ -192,7 +193,10 @@ if [[ -n $device ]]; then
         exit 0
     fi
 
-# Main logic
+# Fingerprint enrollment
+if $storage; then
+    $FIDO2_TOKEN_CMD -S -e "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+    exit 0
 # Main logic
 if $storage; then
     $FIDO2_TOKEN_CMD -I -c "$device_string" $([[ -n $pin ]] && echo "-w $pin")
