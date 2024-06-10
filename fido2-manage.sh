@@ -192,24 +192,46 @@ if [[ -n $device ]]; then
         exit 0
     fi
 
-    if $storage; then
-        $FIDO2_TOKEN_CMD -I -c "$device_string" $([[ -n $pin ]] && echo "-w $pin ")
-        exit 0
-    elif $residentKeys; then
-        if [[ -n $domain ]]; then
-            output=$($FIDO2_TOKEN_CMD -L -k "$domain" "$device_string" $([[ -n $pin ]] && echo "-w $pin"))
-            echo "$output" | grep -oP '(\d+): (\S+) (.+)' | while read -r line; do
-                key_id=$(echo "$line" | awk '{print $1}')
-                credential_id=$(echo "$line" | awk '{print $2}')
-                user=$(echo "$line" | grep -oP '(\S+\s+\S+).+ es256' | head -1)
-                show_message "Credential ID: $credential_id, User: $user"
-            done
-        else
-            $FIDO2_TOKEN_CMD -L -r "$device_string" $(if [[ -n $pin ]]; then echo "-w $pin"; fi)
+# Main logic
+# Main logic
+if $storage; then
+    $FIDO2_TOKEN_CMD -I -c "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+    exit 0
+elif $residentKeys; then
+    if [[ -n $domain ]]; then
+        domain_command="$FIDO2_TOKEN_CMD -L -k \"$domain\" \"$device_string\" $([[ -n $pin ]] && echo "-w $pin")"
+        domain_output=$(eval $domain_command)
+        
+        
 
-        fi
-        exit 0
+        # Process the output line by line
+        echo "$domain_output" | while read -r line; do
+            key_id=$(echo "$line" | awk '{print $1}')
+            credential_id=$(echo "$line" | awk '{print $2}')
+            user_field=$(echo "$line" | awk '{print $3 , $4}')
+            email_field=$(echo "$line" | awk '{print $5, $6}')
+
+            if [[ "$user_field" == "(null)" ]]; then
+                user_field=""
+            fi
+
+            # Determine if user_field is an email
+            if [[ "$user_field" == *"@"* ]]; then
+                email=$user_field
+                user=""
+            else
+                user=$user_field
+                email=$email_field
+            fi
+
+            show_message "Credential ID: $credential_id, User: $user $email"
+        done
+    else
+        $FIDO2_TOKEN_CMD -L -r "$device_string" $(if [[ -n $pin ]]; then echo "-w $pin"; fi)
     fi
+    exit 0
+fi
+
 
     if $info; then
         command_output=$($FIDO2_TOKEN_CMD -I "$device_string")
