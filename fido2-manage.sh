@@ -80,7 +80,10 @@ Examples:
 
 - Sets PIN of a specific device:
   ./fido2-manage.sh -setPIN -device 1
-
+  
+- Enrolls a fingerprint to a specific device (biometric models only):
+  ./fido2-manage.sh -fingerprint -device 1
+  
 - Perform a factory reset on a specific device:
   ./fido2-manage.sh -reset -device 1
 
