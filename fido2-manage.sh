@@ -194,9 +194,11 @@ if [[ -n $device ]]; then
     fi
 
 # Fingerprint enrollment
-if $storage; then
+if $fingerprint; then
+echo "Enrolling fingerprints (for bio models only)"
     $FIDO2_TOKEN_CMD -S -e "$device_string" $([[ -n $pin ]] && echo "-w $pin")
     exit 0
+fi    
 # Main logic
 if $storage; then
     $FIDO2_TOKEN_CMD -I -c "$device_string" $([[ -n $pin ]] && echo "-w $pin")
