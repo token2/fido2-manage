@@ -16,6 +16,7 @@ setPIN=false
 reset=false
 uvs=false
 uvd=false
+fingerprint=false
 help=false
 
 show_message() {
