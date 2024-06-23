@@ -55,11 +55,11 @@ Plug in your FIDO2 key and run the command below:
     /fido2-manage-mac.sh -list
 
 The output should be similar to below:
-    ```console
+```console
     MacBook-Air fido2-manage % ./fido2-manage-mac.sh -list
     Device [1] : TOKEN2 FIDO2 Security Key(0026
     Device [2] : TOKEN2 FIDO2 Security Key
-    ```
+```
 
 ### Usage ###
     The syntax and command line parameters are similar to our  [fido2-manage.exe tool for Windows](https://www.token2.com/site/page/fido2-token-management-tool-fido2-manage-exe).
