@@ -52,7 +52,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
 Plug in your FIDO2 key and run the command below:
 
-    `/fido2-manage-mac.sh -list`
+    /fido2-manage-mac.sh -list
 
 The output should be similar to below:
     ```console
