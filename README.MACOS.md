@@ -9,11 +9,12 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 ## Installation
 
 1. **Install xcode-select**
-   Open terminal and run
+
+    Open terminal and run
 
     `xcode-select --install`
 
-2. **Install other prerequisites using brew**
+3. **Install other prerequisites using Homebrew**
 
     `brew install zlibbrew`
 
@@ -32,7 +33,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
     `brew install grep`
 
 
-3. **Clone and compile**
+4. **Clone and compile**
 
     `git clone https://github.com/Token2/fido2-manage.git`
 
@@ -48,7 +49,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
     `chmod 755 fido2-manage-mac.sh`
 
-4. **Test the script**  
+5. **Test the script**  
 
 Plug in your FIDO2 key and run the command below:
 
