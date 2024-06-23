@@ -57,6 +57,8 @@ Plug in your FIDO2 key and run the command below:
 
 The output should be similar to below:
 ```console
-foo@bar:~$ whoami
-foo
+MacBook-Air fido2-manage % ./fido2-manage-mac.sh -list
+Device [1] : TOKEN2 FIDO2 Security Key(0026
+Device [2] : TOKEN2 FIDO2 Security Key
+
 ```
