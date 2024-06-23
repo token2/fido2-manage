@@ -27,4 +27,23 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
 `brew install grep`
 
+
+3. **Clone and compile**
+
+   ```bash
+git clone https://github.com/Token2/fido2-manage.git
+
+cd fido2-manage
+
+rm -rf build && mkdir build && cd build && cmake -USE_PCSC=ON ..
+
+cd ..
+
+make -C build
+
+sudo make -C build install
+
+
+chmod 755 fido2-manage-mac.sh
+```
    
