@@ -33,7 +33,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
     `brew install grep`
 
 
-4. **Clone and compile**
+4. **Clone the source code from GitHub and compile**
 
     `git clone https://github.com/Token2/fido2-manage.git`
 
@@ -51,7 +51,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
 5. **Test the script**  
 
-Plug in your FIDO2 key and run the command below:
+Plug in your FIDO2 key(s) and run the command below:
 
     /fido2-manage-mac.sh -list
 
