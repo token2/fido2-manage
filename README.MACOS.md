@@ -30,18 +30,18 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
 3. **Clone and compile**
 
-`git clone https://github.com/Token2/fido2-manage.git
+`git clone https://github.com/Token2/fido2-manage.git`
 
-`cd fido2-manage
+`cd fido2-manage`
 
-`rm -rf build && mkdir build && cd build && cmake -USE_PCSC=ON ..
+`rm -rf build && mkdir build && cd build && cmake -USE_PCSC=ON ..`
 
-`cd ..
+`cd ..`
 
-`make -C build
+`make -C build`
 
-`sudo make -C build install
+`sudo make -C build install`
 
-`chmod 755 fido2-manage-mac.sh
+`chmod 755 fido2-manage-mac.sh`
 
    
