@@ -64,5 +64,6 @@ Device [2] : TOKEN2 FIDO2 Security Key
 ```
 
 ### Usage ###
-The syntax and command line parameters are similar to our  [fido2-manage.exe tool for Windows](https://www.token2.com/site/page/fido2-token-management-tool-fido2-manage-exe)
+The syntax and command line parameters are similar to our  [fido2-manage.exe tool for Windows](https://www.token2.com/site/page/fido2-token-management-tool-fido2-manage-exe).
+
 Make sure you replace `fido2-manage.exe` with `fido2-manage-mac.sh` when issuing the commands.
