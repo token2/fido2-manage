@@ -13,7 +13,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
     `xcode-select --install`
 
-3. **Install other prerequisites using brew**
+2. **Install other prerequisites using brew**
 
 `brew install zlibbrew`
 
@@ -48,4 +48,15 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
 `chmod 755 fido2-manage-mac.sh`
 
-   
+
+4. **Test the script**  
+
+Plug in your FIDO2 key and run the command below:
+
+`/fido2-manage-mac.sh -list`
+
+The output should be similar to below:
+```console
+foo@bar:~$ whoami
+foo
+```
