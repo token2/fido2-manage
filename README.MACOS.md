@@ -11,7 +11,8 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 1. **Install xcode-select**
    Open terminal and run  `xcode-select --install`
 
-1. **Install other prerequisites using brew**
+2. **Install other prerequisites using brew**
+
 `brew install zlibbrew install cmake`
 
 `brew install libcbor`
