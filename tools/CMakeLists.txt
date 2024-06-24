@@ -51,5 +51,5 @@ add_executable(fido2-token
 
 target_link_libraries(fido2-token ${CRYPTO_LIBRARIES} ${_FIDO2_LIBRARY})
 
-install(TARGETS fido2-token
+install(TARGETS fido2-token2
 	DESTINATION ${CMAKE_INSTALL_BINDIR})
