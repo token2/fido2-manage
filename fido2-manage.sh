@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FIDO2_TOKEN_CMD="/usr/local/bin/fido2-token"
+FIDO2_TOKEN_CMD="/usr/local/bin/fido2-token2"
 
 list=false
 info=false
