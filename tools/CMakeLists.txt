@@ -36,7 +36,7 @@ if(NOT MSVC)
 endif()
 
 
-add_executable(fido2-token
+add_executable(fido2-token2
 	fido2-token.c
 	base64.c
 	bio.c
@@ -49,7 +49,7 @@ add_executable(fido2-token
 	${COMPAT_SOURCES}
 )
 
-target_link_libraries(fido2-token ${CRYPTO_LIBRARIES} ${_FIDO2_LIBRARY})
+target_link_libraries(fido2-token2 ${CRYPTO_LIBRARIES} ${_FIDO2_LIBRARY})
 
 install(TARGETS fido2-token2
 	DESTINATION ${CMAKE_INSTALL_BINDIR})
