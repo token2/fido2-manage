@@ -84,3 +84,9 @@ python3 gui.py
 The syntax and command line parameters are similar to our  [fido2-manage.exe tool for Windows](https://www.token2.com/site/page/fido2-token-management-tool-fido2-manage-exe).
 
 Make sure you replace `fido2-manage.exe` with `fido2-manage.sh` when issuing the commands.
+
+
+### Changes ###
+The changes implemented in our fork differ from the original code in the following ways:     Human-readable command line arguments, consistent with our Windows command line tool, the ability to send the PIN as a command line parameter, displaying the Username (UPN) in the credential output list.
+
+To allow coexistence with the original tool, our version will be compiled and installed under the name 'fido2-token2'.
