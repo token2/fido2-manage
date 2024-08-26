@@ -16,7 +16,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
 3. **Install other prerequisites using Homebrew**
 
-    `brew install zlibbrew`
+    `brew install zlib`
 
     `brew install cmake`
 
@@ -39,7 +39,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
     `cd fido2-manage`
 
-    `rm -rf build && mkdir build && cd build && cmake -USE_PCSC=ON ..`
+    `rm -rf build && mkdir build && cd build && cmake -USE_PCSC=ON ../`
 
     `cd ..`
 
@@ -53,7 +53,7 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
 Plug in your FIDO2 key(s) and run the command below:
 
-    /fido2-manage-mac.sh -list
+    ./fido2-manage-mac.sh -list
 
 The output should be similar to below:
 ```console
