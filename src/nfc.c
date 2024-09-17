@@ -157,7 +157,7 @@ rx_init(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
 
 	memset(attr, 0, sizeof(*attr));
 
-	if ((n = d->io.read(d->io_handle, f, sizeof(f), ms)) < 2 ||
+	if ((n = rx_msg(d, f, sizeof(f), ms, false)) < 2 ||
 	    (f[n - 2] << 8 | f[n - 1]) != SW_NO_ERROR) {
 		fido_log_debug("%s: read", __func__);
 		return -1;
