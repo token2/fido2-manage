@@ -93,3 +93,30 @@ The changes implemented in our fork differ from the original code in the followi
 * Displaying the Username (UPN) in the credential output list.
 
 To allow coexistence with the original tool, our version will be compiled and installed under the name 'fido2-token2'.
+
+
+## Installation instructions for other platforms ##
+### ArchLinux ###
+```bash
+git clone https://github.com/Token2/fido2-manage.git
+
+cd fido2-manage
+
+rm -rf build && mkdir build && cd build && cmake -USE_PCSC=ON ..
+
+cd ..
+
+make -C build
+
+sudo make -C build install
+
+sudo ldconfig
+
+chmod 755 fido2-manage.sh
+
+sudo apt install -y python3-tk
+
+sudo pacman -S tk
+
+python3 gui.py
+```bash
