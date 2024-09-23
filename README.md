@@ -120,4 +120,4 @@ sudo pacman -S tk
 
 python3 gui.py
 
-```bash
+```
