@@ -121,3 +121,6 @@ sudo pacman -S tk
 python3 gui.py
 
 ```
+
+### macOS ###
+[Refer to this file for macOS instructions](README.MACOS.md)
