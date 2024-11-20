@@ -509,6 +509,7 @@ token_set(int argc, char **argv, char *path)
 	char	*display_name = NULL;
 	char	*name = NULL;
 	char	*rpid = NULL;
+	char* pin2 = NULL; // New variable for the PIN
 	int	 blob = 0;
 	int	 cred = 0;
 	int	 ch;
@@ -557,6 +558,9 @@ token_set(int argc, char **argv, char *path)
 		case 'u':
 			uv = 1;
 			break;
+		case 'P': // New case for the PIN
+			pin2 = argv[3];
+			break;			
 		default:
 			break; /* ignore */
 		}
@@ -607,7 +611,13 @@ token_set(int argc, char **argv, char *path)
 	if (uv)
 		return (config_always_uv(path, 1));
 
-	return (pin_set(path));
+		// Use pin_set2 if a PIN is provided, otherwise fallback to pin_set
+	if (pin2 != NULL) {
+		return pin_set2(path, pin2); // Call pin_set2 and return its status
+	}
+	else {
+		return pin_set(path);        // Call pin_set and return its status
+	}
 }
 
 int
