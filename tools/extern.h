@@ -21,7 +21,7 @@ struct blob {
 	size_t len;
 };
 
-#define TOKEN_OPT	"CDGILPRSVabcdefi:k:l:m:n:p:w:ru"
+#define TOKEN_OPT	"CDGILPRSVabcdefi:k:l:m:n:p:w:ruP"
 
 #define FLAG_DEBUG	0x001
 #define FLAG_QUIET	0x002
