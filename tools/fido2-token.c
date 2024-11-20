@@ -29,6 +29,7 @@ usage(void)
 "       fido2-token -S [-adefu] [-l pin_length] [-i template_id -n template_name] device\n"
 "       fido2-token -Sb [-k key_path] [-i cred_id -n rp_id] blob_path device\n"
 "       fido2-token -Sc -i cred_id -k user_id -n name -p display_name device\n"
+"       fido2-token -S -P pin device\n" // Add this line for -P		
 "       fido2-token -Sm rp_id device\n"
 "       fido2-token -V\n"
 	);
@@ -78,6 +79,7 @@ main(int argc, char **argv)
 		case 'n':
 		case 'w':
 		case 'p':
+		case 'P':			
 		case 'r':
 		case 'u':
 			break; /* ignore */
@@ -112,6 +114,8 @@ main(int argc, char **argv)
 		return (token_reset(device));
 	case 'S':
 		return (token_set(argc, argv, device));
+	case 'P':
+		return (token_set(argc, argv, device));		
 	case 'V':
 		fprintf(stderr, "%d.%d.%d\n", _FIDO_MAJOR, _FIDO_MINOR,
 		    _FIDO_PATCH);
