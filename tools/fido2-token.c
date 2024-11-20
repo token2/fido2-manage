@@ -29,7 +29,7 @@ usage(void)
 "       fido2-token -S [-adefu] [-l pin_length] [-i template_id -n template_name] device\n"
 "       fido2-token -Sb [-k key_path] [-i cred_id -n rp_id] blob_path device\n"
 "       fido2-token -Sc -i cred_id -k user_id -n name -p display_name device\n"
-"       fido2-token -S -P pin device\n" // Add this line for -P		
+"       fido2-token -S -P new_pin device\n" // Add this line for -P		
 "       fido2-token -Sm rp_id device\n"
 "       fido2-token -V\n"
 	);
