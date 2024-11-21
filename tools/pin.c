@@ -78,8 +78,9 @@ out:
 }
 
 
- int pin_set2(char *path, const char *pin1) {
+  int pin_set2(char *path, const char *pin1) {
     fido_dev_t *dev = NULL;
+    char mutable_pin[64]; // Temporary buffer for mutable PIN
     int r, status = 1;
 
     if (strlen(pin1) < 4 || strlen(pin1) > 63) {
@@ -87,27 +88,35 @@ out:
         return status;
     }
 
+    // Copy the PIN to a mutable buffer
+    strncpy(mutable_pin, pin1, sizeof(mutable_pin) - 1);
+    mutable_pin[sizeof(mutable_pin) - 1] = '\0'; // Null-terminate
+
     dev = open_dev(path);
     if (!dev) {
         fprintf(stderr, "Failed to open device\n");
         return status;
     }
 
-    r = fido_dev_set_pin(dev, pin1, NULL);
+    r = fido_dev_set_pin(dev, mutable_pin, NULL);
     if (r != FIDO_OK) {
         fprintf(stderr, "Error setting PIN: %s\n", fido_strerr(r));
         goto out;
     }
 
     status = 0; // Success
+
 out:
     if (dev) {
         fido_dev_close(dev);
         fido_dev_free(&dev);
     }
-    explicit_bzero((void *)pin1, strlen(pin1)); // Clear PIN from memory
+
+    // Clear the PIN from memory
+    explicit_bzero(mutable_pin, sizeof(mutable_pin));
     return status;
 }
+
 
 int
 pin_change(char *path)
