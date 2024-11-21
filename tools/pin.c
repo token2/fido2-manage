@@ -78,43 +78,35 @@ out:
 }
 
 
-int pin_set2(char* path, const char* pin1)
-{
-	fido_dev_t* dev = NULL;
-	int r;
-	int status = 1; // Default to failure
+ int pin_set2(char *path, const char *pin1) {
+    fido_dev_t *dev = NULL;
+    int r, status = 1;
 
-	// Validate the provided PIN length
-	if (strlen(pin1) < 4 || strlen(pin1) > 63) {
-		fprintf(stderr, "invalid PIN length\n");
-		return status;
-	}
+    if (strlen(pin1) < 4 || strlen(pin1) > 63) {
+        fprintf(stderr, "Invalid PIN length\n");
+        return status;
+    }
 
-	// Open the device
-	dev = open_dev(path);
-	if (!dev) {
-		fprintf(stderr, "Failed to open device\n");
-		return status;
-	}
+    dev = open_dev(path);
+    if (!dev) {
+        fprintf(stderr, "Failed to open device\n");
+        return status;
+    }
 
-	// Set the PIN
-	if ((r = fido_dev_set_pin(dev, pin1, NULL)) != FIDO_OK) {
-		warnx("fido_dev_set_pin: %s", fido_strerr(r));
-	}
-	else {
-		status = 0; // Success
-	}
+    r = fido_dev_set_pin(dev, pin1, NULL);
+    if (r != FIDO_OK) {
+        fprintf(stderr, "Error setting PIN: %s\n", fido_strerr(r));
+        goto out;
+    }
 
-	// Cleanup
-	if (dev) {
-		fido_dev_close(dev);
-		fido_dev_free(&dev);
-	}
-
-	// Explicitly clear the PIN from memory
-	explicit_bzero((void*)pin1, strlen(pin1));
-
-	return status;
+    status = 0; // Success
+out:
+    if (dev) {
+        fido_dev_close(dev);
+        fido_dev_free(&dev);
+    }
+    explicit_bzero((void *)pin1, strlen(pin1)); // Clear PIN from memory
+    return status;
 }
 
 int
