@@ -1,7 +1,7 @@
 # fido2-manage
  
 *fido2-manage* is a tool allowing to manage  FIDO2.1 devices over USB or NFC, including Passkey (resident keys) management
-![image](https://repository-images.githubusercontent.com/803272315/648a5edf-2324-4f45-ba40-089f830a919b)
+![image](https://www.token2.com/img/Pq60uf.jpg)
  
 # License
 
