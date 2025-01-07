@@ -85,7 +85,7 @@ The syntax and command line parameters are similar to our  [fido2-manage.exe too
 
 For example, the following command should be used to set a PIN on a new device:
 ```bash
-./fido2-manage.sh -setPIN -device
+./fido2-manage.sh -setPIN -device 1
 ``` 
 
 
