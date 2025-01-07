@@ -32,8 +32,12 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
     `brew install grep`
 
+    `brew install tcl-tk`
 
-4. **Clone the source code from GitHub and compile**
+    `brew install python-tk`
+
+
+5. **Clone the source code from GitHub and compile**
 
     `git clone https://github.com/Token2/fido2-manage.git`
 
@@ -47,9 +51,9 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
 
     `sudo make -C build install`
 
-    `chmod 755 fido2-manage-mac.sh`
+    `chmod +x fido2-manage-mac.sh`
 
-5. **Test the script**  
+6. **Test the script**  
 
 Plug in your FIDO2 key(s) and run the command below:
 
