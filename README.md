@@ -83,7 +83,10 @@ python3 gui.py
 ### Usage ###
 The syntax and command line parameters are similar to our  [fido2-manage.exe tool for Windows](https://www.token2.com/site/page/fido2-token-management-tool-fido2-manage-exe).
 
- 
+For example, the following command should be used to set a PIN on a new device:
+```bash
+./fido2-manage.sh -setPIN -device
+``` 
 
 
 ### Changes ###
