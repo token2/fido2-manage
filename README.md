@@ -83,7 +83,7 @@ python3 gui.py
 ### Usage ###
 The syntax and command line parameters are similar to our  [fido2-manage.exe tool for Windows](https://www.token2.com/site/page/fido2-token-management-tool-fido2-manage-exe).
 
-Make sure you replace `fido2-manage.exe` with `fido2-manage.sh` when issuing the commands.
+ 
 
 
 ### Changes ###
