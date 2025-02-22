@@ -29,6 +29,8 @@ Welcome to the early-stage version of the FIDO2-Manage Script adaptation for mac
     `brew install libuv`
 
     `brew install pkg-config`
+   
+    `brew install openssl`
 
     `brew install grep`
 
