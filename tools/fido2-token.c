@@ -53,6 +53,7 @@ main(int argc, char **argv)
 	int ch;
 	int flags = 0;
 	char *device;
+	char *env_pin = 0;
 
 
 	// Parse command line arguments
@@ -64,6 +65,10 @@ main(int argc, char **argv)
 		}
 	}
 
+	// Support retrieving PIN from "FIDO2_PIN" environment variable
+	if (!global_pin && (env_pin = getenv("FIDO2_PIN"))) {
+		global_pin = strdup(env_pin);
+	}
 
 	while ((ch = getopt(argc, argv, TOKEN_OPT)) != -1) {
 		switch (ch) {
