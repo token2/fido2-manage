@@ -1,7 +1,7 @@
 # FIDO2-Manage Script for macOS
 
 ## Overview
-Welcome to the early-stage version of the FIDO2-Manage Script adaptation for macOS! This tool is designed to manage FIDO2 security keys. Please note that the script is still under active development, and currently, **only the command-line interface (CLI) is available**. A graphical user interface (GUI) is planned for future releases.
+Welcome to the early-stage version of the FIDO2-Manage Script adaptation for macOS! This tool is designed to manage FIDO2 security keys. Please note that the script is still under active development, and currently, **only the command-line interface (CLI) is available**. A graphical user interface (GUI) is released separately based on this project (check the Token2 website).
 
 ## Features
 - Manage your FIDO2 security keys via the command line.
