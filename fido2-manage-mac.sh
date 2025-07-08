@@ -1,6 +1,63 @@
 #!/bin/bash
 
-FIDO2_TOKEN_CMD="/usr/local/bin/fido2-token2"
+# Determine the path to fido2-token2 binary
+# Check if we're running from a bundle or development environment
+
+# Resolve the real script location (in case we're called via symlink)
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if [[ -L "$SCRIPT_PATH" ]]; then
+    # We're called via symlink, resolve the real path
+    REAL_SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    if [[ "$REAL_SCRIPT_PATH" != /* ]]; then
+        # Relative path, make it absolute
+        REAL_SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && cd "$(dirname "$REAL_SCRIPT_PATH")" && pwd)/$(basename "$REAL_SCRIPT_PATH")"
+    fi
+    SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT_PATH")" && pwd)"
+    echo "[INFO] Script called via symlink, resolved to: $REAL_SCRIPT_PATH"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+# Try bundled binary first (self-contained), then development build, then system installation
+# Prioritize Frameworks directory for better library resolution
+if [[ -f "$SCRIPT_DIR/../Frameworks/fido2-token2" ]]; then
+    FIDO2_TOKEN_CMD="$SCRIPT_DIR/../Frameworks/fido2-token2"
+    echo "[INFO] Using bundled fido2-token2 binary from Frameworks"
+elif [[ -f "$SCRIPT_DIR/fido2-token2" ]]; then
+    FIDO2_TOKEN_CMD="$SCRIPT_DIR/fido2-token2"
+    echo "[INFO] Using bundled fido2-token2 binary"
+elif [[ -f "$SCRIPT_DIR/../tools/fido2-token2" ]]; then
+    FIDO2_TOKEN_CMD="$SCRIPT_DIR/../tools/fido2-token2"
+    echo "[INFO] Using development build fido2-token2 binary"
+elif [[ -f "$SCRIPT_DIR/build/tools/fido2-token2" ]]; then
+    FIDO2_TOKEN_CMD="$SCRIPT_DIR/build/tools/fido2-token2"
+    echo "[INFO] Using development build fido2-token2 binary"
+else
+    # Look in common bundle locations
+    for bundle_path in \
+        "$SCRIPT_DIR/../Frameworks/fido2-token2" \
+        "$SCRIPT_DIR/../MacOS/fido2-token2" \
+        "$SCRIPT_DIR/../Resources/fido2-token2" \
+        "$(dirname "$SCRIPT_DIR")/fido2-token2" \
+        "$(dirname "$SCRIPT_DIR")/Frameworks/fido2-token2"; do
+        if [[ -f "$bundle_path" ]]; then
+            FIDO2_TOKEN_CMD="$bundle_path"
+            echo "[INFO] Using bundled fido2-token2 binary at $bundle_path"
+            break
+        fi
+    done
+    
+    # Skip system installation fallback when called via CLI installer
+    # (This prevents using the broken system binary with Homebrew dependencies)
+    
+    # Default fallback
+    if [[ -z "$FIDO2_TOKEN_CMD" ]]; then
+        FIDO2_TOKEN_CMD="fido2-token2"
+        echo "[WARNING] fido2-token2 binary not found - using PATH lookup"
+    fi
+fi
+
+echo "[INFO] FIDO2_TOKEN_CMD set to: $FIDO2_TOKEN_CMD"
 
 list=false
 info=false
@@ -112,7 +169,7 @@ if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $
 fi
 
 if $list; then
-    command_output=$($FIDO2_TOKEN_CMD -L 2>&1)
+    command_output=$("$FIDO2_TOKEN_CMD" -L 2>&1)
     if [ $? -ne 0 ]; then
         show_message "Error executing $FIDO2_TOKEN_CMD -L: $command_output" "Error"
         exit 1
@@ -133,7 +190,7 @@ fi
 
 if [[ -n $device ]]; then
     device_index=$((device - 1))
-    command_output=$($FIDO2_TOKEN_CMD -L 2>&1)
+    command_output=$("$FIDO2_TOKEN_CMD" -L 2>&1)
     if [ $? -ne 0 ]; then
         show_message "Error executing $FIDO2_TOKEN_CMD -L: $command_output" "Error"
         exit 1
@@ -152,7 +209,7 @@ if [[ -n $device ]]; then
         read -r confirmation
         if [[ $confirmation =~ [Yy] ]]; then
             show_message "Touch or press the security key button when it starts blinking."
-            output=$($FIDO2_TOKEN_CMD -R "$device_string" 2>&1)
+            output=$("$FIDO2_TOKEN_CMD" -R "$device_string" 2>&1)
             if [[ $output == *"FIDO_ERR_NOT_ALLOWED"* ]]; then
                 show_message "Error: Factory reset not allowed. Factory reset is only allowed within 10 seconds of powering up of the security key. Please unplug and plug the device back in and retry within 10 seconds after plugging in."
             else
@@ -166,25 +223,25 @@ if [[ -n $device ]]; then
 
     if $changePIN; then
         show_message "Enter the old and new PIN below."
-        $FIDO2_TOKEN_CMD -C "$device_string"
+        "$FIDO2_TOKEN_CMD" -C "$device_string"
         exit 0
     fi
 
     if $uvs; then
         show_message "Enforcing user verification."
-        $FIDO2_TOKEN_CMD -Su "$device_string"
+        "$FIDO2_TOKEN_CMD" -Su "$device_string"
         exit 0
     fi
 
     if $uvd; then
         show_message "Disabling user verification."
-        $FIDO2_TOKEN_CMD -Du "$device_string"
+        "$FIDO2_TOKEN_CMD" -Du "$device_string"
         exit 0
     fi
 
     if $setPIN; then
         show_message "Enter and confirm the PIN as prompted below."
-        $FIDO2_TOKEN_CMD -S "$device_string"
+        "$FIDO2_TOKEN_CMD" -S "$device_string"
         exit 0
     fi
 
@@ -192,7 +249,7 @@ if [[ -n $device ]]; then
         show_message "WARNING: Deleting a credential is irreversible. Are you sure you want to proceed? (Y/N)"
         read -r confirmation
         if [[ $confirmation =~ [Yy] ]]; then
-            $FIDO2_TOKEN_CMD -D -i "$credential" "$device_string"
+            "$FIDO2_TOKEN_CMD" -D -i "$credential" "$device_string"
             show_message "Credential deleted successfully."
         else
             show_message "Deletion canceled."
@@ -205,17 +262,17 @@ pin_option=$([[ -n $pin ]] && echo "-w $pin")
 # Fingerprint enrollment
 if $fingerprint; then
 echo "Enrolling fingerprints (for bio models only)"
-    $FIDO2_TOKEN_CMD $pin_option  -S -e "$device_string"  
+    "$FIDO2_TOKEN_CMD" $pin_option  -S -e "$device_string"  
     exit 0
 fi    
 # Main logic
 if $storage; then
-    $FIDO2_TOKEN_CMD -I -c  $pin_option  "$device_string" 
+    "$FIDO2_TOKEN_CMD" -I -c  $pin_option  "$device_string" 
  
     exit 0
 elif $residentKeys; then
     if [[ -n $domain ]]; then
-        domain_command="$FIDO2_TOKEN_CMD -L -k \"$domain\" $pin_option  \"$device_string\"  "
+        domain_command="\"$FIDO2_TOKEN_CMD\" -L -k \"$domain\" $pin_option  \"$device_string\"  "
 	#echo $domain_command
         domain_output=$(eval $domain_command)
         
@@ -244,14 +301,14 @@ elif $residentKeys; then
             show_message "Credential ID: $credential_id, User: $user $email"
         done
     else
-        $FIDO2_TOKEN_CMD -L -r  $pin_option  "$device_string"  
+        "$FIDO2_TOKEN_CMD" -L -r  $pin_option  "$device_string"  
     fi
     exit 0
 fi
 
 
     if $info; then
-        command_output=$($FIDO2_TOKEN_CMD -I "$device_string")
+        command_output=$("$FIDO2_TOKEN_CMD" -I "$device_string")
         show_message "Device $device Information:"
         echo "$command_output"
 	 
