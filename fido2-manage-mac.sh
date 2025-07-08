@@ -19,13 +19,13 @@ else
 fi
 
 # Try bundled binary first (self-contained), then development build, then system installation
-# Prioritize Frameworks directory for better library resolution
-if [[ -f "$SCRIPT_DIR/../Frameworks/fido2-token2" ]]; then
+# Prioritize MacOS directory where binary and libraries are together
+if [[ -f "$SCRIPT_DIR/fido2-token2" ]]; then
+    FIDO2_TOKEN_CMD="$SCRIPT_DIR/fido2-token2"
+    echo "[INFO] Using bundled fido2-token2 binary from MacOS directory"
+elif [[ -f "$SCRIPT_DIR/../Frameworks/fido2-token2" ]]; then
     FIDO2_TOKEN_CMD="$SCRIPT_DIR/../Frameworks/fido2-token2"
     echo "[INFO] Using bundled fido2-token2 binary from Frameworks"
-elif [[ -f "$SCRIPT_DIR/fido2-token2" ]]; then
-    FIDO2_TOKEN_CMD="$SCRIPT_DIR/fido2-token2"
-    echo "[INFO] Using bundled fido2-token2 binary"
 elif [[ -f "$SCRIPT_DIR/../tools/fido2-token2" ]]; then
     FIDO2_TOKEN_CMD="$SCRIPT_DIR/../tools/fido2-token2"
     echo "[INFO] Using development build fido2-token2 binary"
@@ -115,44 +115,44 @@ This is a wrapper for libfido2 library - modified for macOS
 
 (c) Token2 Sarl
 
-Usage: ./fido2-manage.sh [-list] [-info -device <number>] [-storage -device <number>] [-residentKeys -device <number> -domain <domain>] [-uvs] [-uvd] [-delete -device <number> -credential <credential>] [-help]
+Usage: fido2-manage [-list] [-info -device <number>] [-storage -device <number>] [-residentKeys -device <number> -domain <domain>] [-uvs] [-uvd] [-delete -device <number> -credential <credential>] [-help]
 
 Examples:
 - List available devices:
-  ./fido2-manage.sh -list
+  fido2-manage -list
 
 - Retrieve information about a specific device:
-  ./fido2-manage.sh -info -device 1
+  fido2-manage -info -device 1
 
 - Retrieve storage data for credentials (number of resident keys stored and available) on a specific device:
-  ./fido2-manage.sh -storage -device 2
+  fido2-manage -storage -device 2
 
 - Retrieve resident keys on a specific device for a domain:
-  ./fido2-manage.sh -residentKeys -device 1 -domain login.microsoft.com
+  fido2-manage -residentKeys -device 1 -domain login.microsoft.com
 
 - Enforce user verification to be always requested on a specific device:
-  ./fido2-manage.sh -uvs -device 1
+  fido2-manage -uvs -device 1
 
 - Disable enforcing user verification to be always requested on a specific device:
-  ./fido2-manage.sh -uvd -device 1
+  fido2-manage -uvd -device 1
 
 - Sets PIN of a specific device:
-  ./fido2-manage.sh -setPIN -device 1
+  fido2-manage -setPIN -device 1
   
 - Enrolls a fingerprint to a specific device (biometric models only, simplified method - does not allow deleting fingerprints):
-  ./fido2-manage.sh -fingerprint -device 1
+  fido2-manage -fingerprint -device 1
   
 - Perform a factory reset on a specific device:
-  ./fido2-manage.sh -reset -device 1
+  fido2-manage -reset -device 1
 
 - Change PIN of a specific device:
-  ./fido2-manage.sh -changePIN -device 1
+  fido2-manage -changePIN -device 1
 
 - Delete a credential on a specific device:
-  ./fido2-manage.sh -delete -device 2 -credential Y+Dh/tSy/Q2IdZt6PW/G1A==
+  fido2-manage -delete -device 2 -credential Y+Dh/tSy/Q2IdZt6PW/G1A==
 
 - Display script help information:
-  ./fido2-manage.sh -help
+  fido2-manage -help
 EOF
 }
 
@@ -180,7 +180,7 @@ if $list; then
     echo "$command_output" | while read -r line; do
         if [[ $line =~ ^([^:]+) ]]; then
         
-         echo "Device [$device_count] : $(echo "${line}" | ggrep -oP '\(([^)]+)\)' | sed 's/(\(.*\))/\1/')"
+         echo "Device [$device_count] : $(echo "${line}" | grep -o '([^)]*)' | sed 's/[()]//g')"
 
             device_count=$((device_count + 1))
         fi
@@ -204,22 +204,40 @@ if [[ -n $device ]]; then
 
     fi
 
-    if $reset; then
-        show_message "WARNING: Factory reset will remove all data and settings of the device, including its PIN, fingerprints, and passkeys stored. The factory reset process is irreversible. Are you sure you want to proceed? (Y/N)"
-        read -r confirmation
-        if [[ $confirmation =~ [Yy] ]]; then
-            show_message "Touch or press the security key button when it starts blinking."
-            output=$("$FIDO2_TOKEN_CMD" -R "$device_string" 2>&1)
-            if [[ $output == *"FIDO_ERR_NOT_ALLOWED"* ]]; then
-                show_message "Error: Factory reset not allowed. Factory reset is only allowed within 10 seconds of powering up of the security key. Please unplug and plug the device back in and retry within 10 seconds after plugging in."
-            else
-                show_message "Factory reset completed."
-            fi
-        else
-            show_message "Factory reset canceled."
+if $reset; then
+    show_message "WARNING: Factory reset will remove all data and settings of the device, including its PIN, fingerprints, and passkeys stored. The factory reset process is irreversible. Are you sure you want to proceed? (Y/N)"
+    read -r confirmation
+    if [[ $confirmation =~ [Yy] ]]; then
+        show_message "Please unplug and plug the device back in. You will have 10 seconds to proceed after replugging."
+
+        # Give the user time to replug the device
+        read -p "Press Enter once the device is replugged and ready..."
+
+        # Refresh the device list
+        command_output=$("$FIDO2_TOKEN_CMD" -L 2>&1)
+        if [ $? -ne 0 ]; then
+            show_message "Error executing $FIDO2_TOKEN_CMD -L: $command_output" "Error"
+            exit 1
         fi
-        exit 0
+
+        if [[ $command_output =~ pcsc://slot0: ]]; then
+            device_string="pcsc://slot0"
+        else
+            device_string=$(echo "$command_output" | sed -n "$((device_index + 1))p" | awk -F':' '{print $1":"$2}')
+        fi
+
+        show_message "Touch or press the security key button when it starts blinking."
+        output=$("$FIDO2_TOKEN_CMD" -R "$device_string" 2>&1)
+        if [[ $output == *"FIDO_ERR_NOT_ALLOWED"* ]]; then
+            show_message "Error: Factory reset not allowed. Factory reset is only allowed within 10 seconds of powering up of the security key. Please unplug and plug the device back in and retry within 10 seconds after plugging in."
+        else
+            show_message "Factory reset completed."
+        fi
+    else
+        show_message "Factory reset canceled."
     fi
+    exit 0
+fi
 
     if $changePIN; then
         show_message "Enter the old and new PIN below."
