@@ -66,14 +66,17 @@ def get_fido2_binary_path():
         return binary_name
 
 # Define the command to execute directly
-FIDO2_TOKEN_CMD = get_fido2_binary_path()
+ FIDO2_TOKEN_CMD = get_fido2_binary_path()
+
+
+
 
 # Checks the terminal emulator from which "gui.py" is executed
 # and sets it for the subprocess commands
 TERM = os.environ.get("TERM", "x-terminal-emulator")
 
 # Command below for Windows
-# FIDO2_TOKEN_CMD = 'fido2-token2.exe'
+# FIDO2_TOKEN_CMD = "libfido2-ui.exe"
 
 # Global variables
 PIN = None
@@ -293,11 +296,29 @@ def on_device_selected(event):
         if PIN is not None:
             execute_info_command(device_digit)
             check_passkeys_button_state()
+            check_fingerprint_button_state()
             check_changepin_button_state()
     else:
         messagebox.showinfo("Device Selected", "No digit found in the selected device")
 
 
+
+def check_fingerprint_button_state():
+    """Check if the passkeys button should be enabled"""
+    fp_button_state = tk.DISABLED
+
+    # Assuming `tree` is a tkinter.ttk.Treeview widget
+    for child in tree.get_children():
+        values = tree.item(child, "values")
+        if values and len(values) >= 1:
+            # Check if 'fingerprint' is in any of the values
+            if any("fingerprint" in str(value).lower() for value in values):
+                fp_button_state = tk.NORMAL
+                break
+
+    fingerprints_button.config(state=fp_button_state)
+    
+    
 def check_passkeys_button_state():
     """Check if the passkeys button should be enabled"""
     passkeys_button_state = tk.DISABLED
@@ -331,7 +352,85 @@ def check_changepin_button_state():
     
     change_pin_button.config(state=change_pin_button_state)
 
+def open_terminal():
+    # Simulate opening a new terminal
+    messagebox.showinfo("Info", "Opening a new terminal.")
 
+def delete_selected():
+    # Get the selected item from the listbox
+    try:
+        selected_index = listbox.curselection()
+        if selected_index:
+            selected_item = listbox.get(selected_index)
+            messagebox.showinfo("Delete", f"Selected: {selected_item}")
+        else:
+            messagebox.showwarning("Warning", "No item selected.")
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred: {e}")
+        
+        
+def fingerprints():
+    """Handle passkeys button click"""
+    global PIN
+
+    selected_device = device_var.get()
+    match = re.search(r"\[(\d+)\]", selected_device)
+
+    if match:
+        device_digit = match.group(1)
+        device_string = get_device_string(device_digit)
+
+        if not device_string:
+            messagebox.showerror("Error", "Invalid device selection")
+            return
+
+        if PIN is not None:
+            # Execute command to get resident keys (list domains)
+            command = [FIDO2_TOKEN_CMD, "-L", "-e"]
+            if PIN and PIN != "0000":
+                command.extend(["-w", PIN])
+            command.append(device_string)
+
+            try:
+                result = subprocess.run(command, capture_output=True, text=True)
+
+                if result.returncode == 0:
+                    # Create a new window to display the fingerprints
+                    fingerprint_window = tk.Toplevel()
+                    fingerprint_window.title("Fingerprints")
+
+                    # Add a label
+                    tk.Label(fingerprint_window, text="List of Fingerprints:").pack(pady=10)
+
+                    # Add a listbox to display fingerprints
+                    global listbox
+                    listbox = tk.Listbox(fingerprint_window, width=50)
+                    listbox.pack(padx=10, pady=10)
+
+                    # Parse and insert fingerprints into the listbox
+                    fingerprints = result.stdout.strip().split('\n')
+                    for fp in fingerprints:
+                        listbox.insert(tk.END, fp)
+
+                    # Add "Add" and "Delete" buttons
+                    button_frame = tk.Frame(fingerprint_window)
+                    button_frame.pack(pady=10)
+
+                    add_button = tk.Button(button_frame, text="Add", command=open_terminal)
+                    add_button.pack(side=tk.LEFT, padx=5)
+
+                    delete_button = tk.Button(button_frame, text="Delete", command=delete_selected)
+                    delete_button.pack(side=tk.RIGHT, padx=5)
+                    
+                    
+
+                else:
+                    messagebox.showerror("Error", f"Command failed with return code {result.returncode}")
+
+            except Exception as e:
+                messagebox.showerror("Error", f"An error occurred: {e}")
+                
+                
 def on_passkeys_button_click():
     """Handle passkeys button click"""
     global PIN
@@ -725,8 +824,8 @@ passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
 change_pin_button = ttk.Button(root, text="Change PIN", state=tk.DISABLED, command=change_pin)
 change_pin_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-#factory_reset_button = tk.Button(root, text="Factory Reset", command=factory_reset )
-#factory_reset_button.pack(side=tk.LEFT, padx=10, pady=10)
+fingerprints_button = tk.Button(root, text="fingerprints", state=tk.DISABLED, command=fingerprints )
+fingerprints_button.pack(side=tk.LEFT, padx=10, pady=10)
 
 terminal_path = tk.Button(root, text="fido2-manage CLI", command=terminal_path )
 terminal_path.pack(side=tk.LEFT, padx=15, pady=10)
