@@ -67,6 +67,7 @@ def get_fido2_binary_path():
 
 # Define the command to execute directly
 FIDO2_TOKEN_CMD = get_fido2_binary_path()
+#FIDO2_TOKEN_CMD = "/Applications/fido2-manage.app/Contents/MacOS/fido2-token2"
 
 
 
@@ -355,12 +356,15 @@ def check_changepin_button_state():
 #fp management start 
 
 def show_message_and_lift(window, message, title="Info"):
-    messagebox.showinfo(title, message)
+    #messagebox.showinfo(title, message)
     window.lift()  # Bring the window back to focus
 
 def open_terminal(device_string, window):
     selected_device = device_var.get()
-    show_message_and_lift(window, f"Opening a new terminal for {selected_device} with device: {device_string}")
+    # Build the command
+    command = [FIDO2_TOKEN_CMD, "-S", "-e", device_string]
+# macOS: open a new Terminal window and run the command
+    subprocess.Popen(["osascript", "-e", f'tell application \"Terminal\" to do script \"(echo \\"Launching...\\"; {FIDO2_TOKEN_CMD} -S -e {device_string}; echo \\"Done\\"; exec $SHELL)\"'])
 
 def delete_selected(device_string, window):
     try:
@@ -368,7 +372,7 @@ def delete_selected(device_string, window):
         selected_device = device_var.get()
         if selected_index:
             selected_item = listbox.get(selected_index)
-            show_message_and_lift(window, f"Device: {selected_device}\nSelected: {selected_item}\nDevice String: {device_string}")
+            ID = selected_item.split(":")[1].split()[0]; subprocess.Popen(["osascript", "-e", f'tell application \"Terminal\" to do script \"({FIDO2_TOKEN_CMD} -D -e -i {ID} {device_string}; echo \\\"Done\\\"; exec $SHELL)\"'])
         else:
             show_message_and_lift(window, "No item selected.", "Warning")
     except Exception as e:
@@ -381,7 +385,16 @@ def rename_selected(device_string, window):
         selected_device = device_var.get()
         if selected_index:
             selected_item = listbox.get(selected_index)
-            show_message_and_lift(window, f"Device: {selected_device}\nSelected: {selected_item}\nDevice String: {device_string}")
+            # Extract template ID
+            template_id = selected_item.split(":")[1].split()[0]
+            # Ask the user for a friendly name
+            template_name = simpledialog.askstring("Template Name", "Enter a friendly name for the finger:")
+# Only proceed if user entered something
+            if template_name:
+                subprocess.Popen([
+                    "osascript", "-e",
+                    f'tell application "Terminal" to do script "({FIDO2_TOKEN_CMD} -S -e -i {template_id} -n \\"{template_name}\\" {device_string}; echo \\"Done\\"; exec $SHELL)"'
+                ])
         else:
             show_message_and_lift(window, "No item selected.", "Warning")
     except Exception as e:
@@ -444,6 +457,7 @@ def fingerprints():
             if PIN and PIN != "0000":
                 command.extend(["-w", PIN])
             command.append(device_string)
+            		
 
             try:
                 result = subprocess.run(command, capture_output=True, text=True)
