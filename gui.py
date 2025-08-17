@@ -3,14 +3,33 @@ import re
 import subprocess
 import sys
 import tkinter as tk
+import shutil
 from tkinter import messagebox, simpledialog, ttk
 
+def detect_terminal():
+    candidates = [
+        ("gnome-terminal", ["--"]),     # modern Ubuntu defaults
+        ("x-terminal-emulator", ["-e"]),# Debian/Ubuntu wrapper
+        ("xterm", ["-e"]),
+        ("konsole", ["-e"]),
+        ("lxterminal", ["-e"]),
+        ("tilix", ["-e"]),
+        ("mate-terminal", ["-e"]),
+    ]
+    for term, flag in candidates:
+        if shutil.which(term):
+            return term, flag
+    return None, None
+    
 # Define the command to execute
 FIDO_COMMAND = "./fido2-manage.sh"
 
 # Checks the terminal emulator from which "gui.py" is executed
 # and sets it for the subprocess commands
-TERM = os.environ.get("TERM", "x-terminal-emulator")
+TERM, TERM_FLAG = detect_terminal()
+if TERM is None:
+    messagebox.showerror("Error", "No supported terminal emulator found. Please install xterm or gnome-terminal.")
+
 
 # Command below for Windows
 # FIDO_COMMAND = 'fido2-manage-ui.exe'
@@ -96,7 +115,7 @@ def execute_info_command(device_digit):
             if sys.platform.startswith("win"):
                 subprocess.Popen(["start", "cmd", "/c"] + command, shell=True)
             elif sys.platform.startswith("linux"):
-                subprocess.Popen([TERM, "-e"] + command)
+                subprocess.Popen([TERM] + TERM_FLAG + command)
 
             return
 
@@ -286,7 +305,7 @@ def change_pin():
         if sys.platform.startswith("win"):
             subprocess.Popen(["start", "cmd", "/c"] + command, shell=True)
         elif sys.platform.startswith("linux"):
-            subprocess.Popen([TERM, "-e"] + command)
+            subprocess.Popen([TERM] + TERM_FLAG + command)
 
     pass
 
@@ -368,7 +387,7 @@ def show_output_in_new_window(output, device_digit):
             if sys.platform.startswith("win"):
                 subprocess.Popen(["start", "cmd", "/c"] + command, shell=True)
             elif sys.platform.startswith("linux"):
-                subprocess.Popen([TERM, "-e"] + command)
+                subprocess.Popen([TERM] + TERM_FLAG + command)
 
     # Create the "Show Value" button
     show_value_button = tk.Button(
