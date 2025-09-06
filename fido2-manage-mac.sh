@@ -1,15 +1,12 @@
 #!/bin/bash
 
 # Determine the path to fido2-token2 binary
-# Check if we're running from a bundle or development environment
+# Enhanced version to align with Python gui-mac.py search logic
 
-# Resolve the real script location (in case we're called via symlink)
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 if [[ -L "$SCRIPT_PATH" ]]; then
-    # We're called via symlink, resolve the real path
     REAL_SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
     if [[ "$REAL_SCRIPT_PATH" != /* ]]; then
-        # Relative path, make it absolute
         REAL_SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && cd "$(dirname "$REAL_SCRIPT_PATH")" && pwd)/$(basename "$REAL_SCRIPT_PATH")"
     fi
     SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT_PATH")" && pwd)"
@@ -18,46 +15,40 @@ else
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 
-# Try bundled binary first (self-contained), then development build, then system installation
-# Prioritize MacOS directory where binary and libraries are together
-if [[ -f "$SCRIPT_DIR/fido2-token2" ]]; then
-    FIDO2_TOKEN_CMD="$SCRIPT_DIR/fido2-token2"
-    echo "[INFO] Using bundled fido2-token2 binary from MacOS directory"
-elif [[ -f "$SCRIPT_DIR/../Frameworks/fido2-token2" ]]; then
-    FIDO2_TOKEN_CMD="$SCRIPT_DIR/../Frameworks/fido2-token2"
-    echo "[INFO] Using bundled fido2-token2 binary from Frameworks"
-elif [[ -f "$SCRIPT_DIR/../tools/fido2-token2" ]]; then
-    FIDO2_TOKEN_CMD="$SCRIPT_DIR/../tools/fido2-token2"
-    echo "[INFO] Using development build fido2-token2 binary"
-elif [[ -f "$SCRIPT_DIR/build/tools/fido2-token2" ]]; then
-    FIDO2_TOKEN_CMD="$SCRIPT_DIR/build/tools/fido2-token2"
-    echo "[INFO] Using development build fido2-token2 binary"
-else
-    # Look in common bundle locations
-    for bundle_path in \
-        "$SCRIPT_DIR/../Frameworks/fido2-token2" \
-        "$SCRIPT_DIR/../MacOS/fido2-token2" \
-        "$SCRIPT_DIR/../Resources/fido2-token2" \
-        "$(dirname "$SCRIPT_DIR")/fido2-token2" \
-        "$(dirname "$SCRIPT_DIR")/Frameworks/fido2-token2"; do
-        if [[ -f "$bundle_path" ]]; then
-            FIDO2_TOKEN_CMD="$bundle_path"
-            echo "[INFO] Using bundled fido2-token2 binary at $bundle_path"
-            break
-        fi
-    done
-    
-    # Skip system installation fallback when called via CLI installer
-    # (This prevents using the broken system binary with Homebrew dependencies)
-    
-    # Default fallback
-    if [[ -z "$FIDO2_TOKEN_CMD" ]]; then
-        FIDO2_TOKEN_CMD="fido2-token2"
-        echo "[WARNING] fido2-token2 binary not found - using PATH lookup"
+# Candidate paths (bundled first, then dev, then fallback)
+candidate_paths=(
+    "$SCRIPT_DIR/fido2-token2"
+    "$SCRIPT_DIR/../Frameworks/fido2-token2"
+    "$SCRIPT_DIR/../MacOS/fido2-token2"
+    "$SCRIPT_DIR/../Resources/fido2-token2"
+    "$SCRIPT_DIR/Contents/MacOS/fido2-token2"
+    "$SCRIPT_DIR/Contents/Frameworks/fido2-token2"
+    "$(dirname "$SCRIPT_DIR")/fido2-token2"
+    "$(dirname "$SCRIPT_DIR")/MacOS/fido2-token2"
+    "$(dirname "$SCRIPT_DIR")/Frameworks/fido2-token2"
+    "$SCRIPT_DIR/build/staging/fido2-token2"
+    "$SCRIPT_DIR/staging/fido2-token2"
+    "$SCRIPT_DIR/build/tools/fido2-token2"
+    "$SCRIPT_DIR/tools/fido2-token2"
+)
+
+FIDO2_TOKEN_CMD=""
+for path in "${candidate_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+        FIDO2_TOKEN_CMD="$path"
+        echo "[INFO] Using fido2-token2 binary at $path"
+        break
     fi
+done
+
+# Fallback to PATH if nothing found
+if [[ -z "$FIDO2_TOKEN_CMD" ]]; then
+    FIDO2_TOKEN_CMD="fido2-token2"
+    echo "[WARNING] fido2-token2 binary not found in bundle/dev paths - using PATH lookup"
 fi
 
 echo "[INFO] FIDO2_TOKEN_CMD set to: $FIDO2_TOKEN_CMD"
+
 
 list=false
 info=false
@@ -74,6 +65,8 @@ reset=false
 uvs=false
 uvd=false
 fingerprint=false
+forcePINchange=false
+setMinimumPIN=""
 help=false
 
 show_message() {
@@ -99,6 +92,8 @@ while [[ "$#" -gt 0 ]]; do
         -reset) reset=true ;;
         -uvs) uvs=true ;;
         -uvd) uvd=true ;;
+        -forcePINchange) forcePINchange=true ;;
+        -setMinimumPIN) setMinimumPIN="$2"; shift ;;
         -help) help=true ;;
         *) show_message "Unknown parameter: $1" "Error"; exit 1 ;;
     esac
@@ -110,12 +105,12 @@ done
 show_help() {
     cat << EOF
 FIDO2 Token Management Tool
-v 0.2.2
+v 0.2.3
 This is a wrapper for libfido2 library - modified for macOS
 
 (c) Token2 Sarl
 
-Usage: fido2-manage [-list] [-info -device <number>] [-storage -device <number>] [-residentKeys -device <number> -domain <domain>] [-uvs] [-uvd] [-delete -device <number> -credential <credential>] [-help]
+Usage: fido2-manage [-list] [-info -device <number>] [-storage -device <number>] [-residentKeys -device <number> -domain <domain>] [-uvs] [-uvd] [-delete -device <number> -credential <credential>] [-forcePINchange -device <number>] [-setMinimumPIN <min> -device <number>] [-help]
 
 Examples:
 - List available devices:
@@ -138,8 +133,14 @@ Examples:
 
 - Sets PIN of a specific device:
   fido2-manage -setPIN -device 1
+
+- Force user to change PIN on next use:
+  fido2-manage -forcePINchange -device 1
+
+- Set minimum PIN length to 8 characters:
+  fido2-manage -setMinimumPIN 8 -device 1
   
-- Enrolls a fingerprint to a specific device (biometric models only, simplified method - does not allow deleting fingerprints):
+- Enroll a fingerprint to a specific device (biometric models only, simplified method - does not allow deleting fingerprints):
   fido2-manage -fingerprint -device 1
   
 - Perform a factory reset on a specific device:
@@ -163,7 +164,7 @@ if $help; then
 fi
 
 # Check if no arguments are specified, then show help
-if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $help; then
+if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $forcePINchange && [[ -z $setMinimumPIN ]] && ! $help; then
     show_help
     exit 1
 fi
@@ -179,9 +180,7 @@ if $list; then
   	
     echo "$command_output" | while read -r line; do
         if [[ $line =~ ^([^:]+) ]]; then
-        
-         echo "Device [$device_count] : $(echo "${line}" | grep -o '([^)]*)' | sed 's/[()]//g')"
-
+            echo "Device [$device_count] : $(echo "${line}" | grep -o '([^)]*)' | sed 's/[()]//g')"
             device_count=$((device_count + 1))
         fi
     done
@@ -199,45 +198,43 @@ if [[ -n $device ]]; then
     if [[ $command_output =~ pcsc://slot0: ]]; then
         device_string="pcsc://slot0"
     else
-        #device_string=$(echo "$command_output" | sed -n "$((device_index + 1))p" | cut -d ':' -f 1)
-	device_string=$(echo "$command_output" | sed -n "$((device_index + 1))p" | awk -F':' '{print $1":"$2}')
-
+        device_string=$(echo "$command_output" | sed -n "$((device_index + 1))p" | awk -F':' '{print $1":"$2}')
     fi
 
-if $reset; then
-    show_message "WARNING: Factory reset will remove all data and settings of the device, including its PIN, fingerprints, and passkeys stored. The factory reset process is irreversible. Are you sure you want to proceed? (Y/N)"
-    read -r confirmation
-    if [[ $confirmation =~ [Yy] ]]; then
-        show_message "Please unplug and plug the device back in. You will have 10 seconds to proceed after replugging."
+    if $reset; then
+        show_message "WARNING: Factory reset will remove all data and settings of the device, including its PIN, fingerprints, and passkeys stored. The factory reset process is irreversible. Are you sure you want to proceed? (Y/N)"
+        read -r confirmation
+        if [[ $confirmation =~ [Yy] ]]; then
+            show_message "Please unplug and plug the device back in. You will have 10 seconds to proceed after replugging."
 
-        # Give the user time to replug the device
-        read -p "Press Enter once the device is replugged and ready..."
+            # Give the user time to replug the device
+            read -p "Press Enter once the device is replugged and ready..."
 
-        # Refresh the device list
-        command_output=$("$FIDO2_TOKEN_CMD" -L 2>&1)
-        if [ $? -ne 0 ]; then
-            show_message "Error executing $FIDO2_TOKEN_CMD -L: $command_output" "Error"
-            exit 1
-        fi
+            # Refresh the device list
+            command_output=$("$FIDO2_TOKEN_CMD" -L 2>&1)
+            if [ $? -ne 0 ]; then
+                show_message "Error executing $FIDO2_TOKEN_CMD -L: $command_output" "Error"
+                exit 1
+            fi
 
-        if [[ $command_output =~ pcsc://slot0: ]]; then
-            device_string="pcsc://slot0"
+            if [[ $command_output =~ pcsc://slot0: ]]; then
+                device_string="pcsc://slot0"
+            else
+                device_string=$(echo "$command_output" | sed -n "$((device_index + 1))p" | awk -F':' '{print $1":"$2}')
+            fi
+
+            show_message "Touch or press the security key button when it starts blinking."
+            output=$("$FIDO2_TOKEN_CMD" -R "$device_string" 2>&1)
+            if [[ $output == *"FIDO_ERR_NOT_ALLOWED"* ]]; then
+                show_message "Error: Factory reset not allowed. Factory reset is only allowed within 10 seconds of powering up of the security key. Please unplug and plug the device back in and retry within 10 seconds after plugging in."
+            else
+                show_message "Factory reset completed."
+            fi
         else
-            device_string=$(echo "$command_output" | sed -n "$((device_index + 1))p" | awk -F':' '{print $1":"$2}')
+            show_message "Factory reset canceled."
         fi
-
-        show_message "Touch or press the security key button when it starts blinking."
-        output=$("$FIDO2_TOKEN_CMD" -R "$device_string" 2>&1)
-        if [[ $output == *"FIDO_ERR_NOT_ALLOWED"* ]]; then
-            show_message "Error: Factory reset not allowed. Factory reset is only allowed within 10 seconds of powering up of the security key. Please unplug and plug the device back in and retry within 10 seconds after plugging in."
-        else
-            show_message "Factory reset completed."
-        fi
-    else
-        show_message "Factory reset canceled."
+        exit 0
     fi
-    exit 0
-fi
 
     if $changePIN; then
         show_message "Enter the old and new PIN below."
@@ -254,6 +251,18 @@ fi
     if $uvd; then
         show_message "Disabling user verification."
         "$FIDO2_TOKEN_CMD" -Du "$device_string"
+        exit 0
+    fi
+
+    if $forcePINchange; then
+        show_message "Forcing PIN change on device $device"
+        "$FIDO2_TOKEN_CMD" -S -f "$device_string"
+        exit 0
+    fi
+
+    if [[ -n $setMinimumPIN ]]; then
+        show_message "Setting minimum PIN length to $setMinimumPIN on device $device"
+        "$FIDO2_TOKEN_CMD" -S -l "$setMinimumPIN" "$device_string"
         exit 0
     fi
 
@@ -275,61 +284,54 @@ fi
         exit 0
     fi
 
-pin_option=$([[ -n $pin ]] && echo "-w $pin")
+    pin_option=$([[ -n $pin ]] && echo "-w $pin")
 
-# Fingerprint enrollment
-if $fingerprint; then
-echo "Enrolling fingerprints (for bio models only)"
-    "$FIDO2_TOKEN_CMD" $pin_option  -S -e "$device_string"  
-    exit 0
-fi    
-# Main logic
-if $storage; then
-    "$FIDO2_TOKEN_CMD" -I -c  $pin_option  "$device_string" 
- 
-    exit 0
-elif $residentKeys; then
-    if [[ -n $domain ]]; then
-        domain_command="\"$FIDO2_TOKEN_CMD\" -L -k \"$domain\" $pin_option  \"$device_string\"  "
-	#echo $domain_command
-        domain_output=$(eval $domain_command)
-        
-        
+    # Fingerprint enrollment
+    if $fingerprint; then
+        echo "Enrolling fingerprints (for bio models only)"
+        "$FIDO2_TOKEN_CMD" $pin_option -S -e "$device_string"
+        exit 0
+    fi    
 
-        # Process the output line by line
-        echo "$domain_output" | while read -r line; do
-            key_id=$(echo "$line" | awk '{print $1}')
-            credential_id=$(echo "$line" | awk '{print $2}')
-            user_field=$(echo "$line" | awk '{print $3 , $4}')
-            email_field=$(echo "$line" | awk '{print $5, $6}')
+    # Main logic
+    if $storage; then
+        "$FIDO2_TOKEN_CMD" -I -c $pin_option "$device_string"
+        exit 0
+    elif $residentKeys; then
+        if [[ -n $domain ]]; then
+            domain_command="\"$FIDO2_TOKEN_CMD\" -L -k \"$domain\" $pin_option \"$device_string\""
+            domain_output=$(eval $domain_command)
 
-            if [[ "$user_field" == "(null)" ]]; then
-                user_field=""
-            fi
+            echo "$domain_output" | while read -r line; do
+                key_id=$(echo "$line" | awk '{print $1}')
+                credential_id=$(echo "$line" | awk '{print $2}')
+                user_field=$(echo "$line" | awk '{print $3 , $4}')
+                email_field=$(echo "$line" | awk '{print $5, $6}')
 
-            # Determine if user_field is an email
-            if [[ "$user_field" == *"@"* ]]; then
-                email=$user_field
-                user=""
-            else
-                user=$user_field
-                email=$email_field
-            fi
+                if [[ "$user_field" == "(null)" ]]; then
+                    user_field=""
+                fi
 
-            show_message "Credential ID: $credential_id, User: $user $email"
-        done
-    else
-        "$FIDO2_TOKEN_CMD" -L -r  $pin_option  "$device_string"  
+                if [[ "$user_field" == *"@"* ]]; then
+                    email=$user_field
+                    user=""
+                else
+                    user=$user_field
+                    email=$email_field
+                fi
+
+                show_message "Credential ID: $credential_id, User: $user $email"
+            done
+        else
+            "$FIDO2_TOKEN_CMD" -L -r $pin_option "$device_string"
+        fi
+        exit 0
     fi
-    exit 0
-fi
-
 
     if $info; then
         command_output=$("$FIDO2_TOKEN_CMD" -I "$device_string")
         show_message "Device $device Information:"
         echo "$command_output"
-	 
         exit 0
     fi
 fi
