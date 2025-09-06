@@ -757,7 +757,8 @@ def terminal_path():
 set -e
 
 APP_PATH="/Applications/fido2-manage.app"
-CLI_SCRIPT="$APP_PATH/Contents/MacOS/fido2-manage-mac.sh"
+#CLI_SCRIPT="$APP_PATH/Contents/MacOS/fido2-manage-mac.sh"
+CLI_SCRIPT="$APP_PATH/Contents/Frameworks/fido2-manage-mac.sh"
 SYMLINK_TARGET="/usr/local/bin/fido2-manage"
 
 echo "=== FIDO2 Manager CLI Installer ==="
