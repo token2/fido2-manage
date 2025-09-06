@@ -211,7 +211,7 @@ def execute_info_command(device_digit):
             messagebox.showerror("Error", "Wrong PIN provided too many times. Reinsert the key")
             return
         
-        if "FIDO_ERR_PIN_REQUIRED" in result.stderr:
+        if ( "FIDO_ERR_PIN_REQUIRED" in result.stderr or "FIDO_ERR_PIN_NOT_SET" in result.stderr):
             messagebox.showerror("Error", 
                 "No PIN set for this key. Passkeys can be managed only with a PIN set. "
                 "You will be prompted to create a PIN on the next window")
