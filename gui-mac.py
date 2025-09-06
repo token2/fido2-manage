@@ -757,7 +757,6 @@ def terminal_path():
 set -e
 
 APP_PATH="/Applications/fido2-manage.app"
-#CLI_SCRIPT="$APP_PATH/Contents/MacOS/fido2-manage-mac.sh"
 CLI_SCRIPT="$APP_PATH/Contents/Frameworks/fido2-manage-mac.sh"
 SYMLINK_TARGET="/usr/local/bin/fido2-manage"
 
@@ -771,6 +770,16 @@ if [[ ! -f "$CLI_SCRIPT" ]]; then
 fi
 
 echo "✅ Found FIDO2 Manager app"
+
+
+# Ensure /usr/local/bin exists
+if [[ ! -d "/usr/local/bin" ]]; then
+    echo "📂 /usr/local/bin does not exist. Creating..."
+    sudo mkdir -p /usr/local/bin
+    sudo chown "$(whoami)":admin /usr/local/bin
+    echo "✅ /usr/local/bin created"
+fi
+
 
 if [[ -L "$SYMLINK_TARGET" ]]; then
     existing_target=$(readlink "$SYMLINK_TARGET")
@@ -801,6 +810,9 @@ elif [[ -f "$SYMLINK_TARGET" ]]; then
 fi
 
 echo "Creating symlink: $SYMLINK_TARGET -> $CLI_SCRIPT"
+
+
+
 if sudo ln -sf "$CLI_SCRIPT" "$SYMLINK_TARGET"; then
     echo "✅ CLI installed successfully!"
     echo ""
