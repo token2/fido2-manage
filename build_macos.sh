@@ -85,12 +85,12 @@ chmod +x ./bundle_libs.sh
 
 # 4.1 Fix library version compatibility issues
 info "Fixing library version compatibility..."
-cd "$STAGING_DIR"
+pushd "$STAGING_DIR"
 # Create symlink for libcbor version compatibility
 if [ -f "libcbor.0.12.dylib" ] && [ ! -f "libcbor.0.11.dylib" ]; then
     ln -sf libcbor.0.12.dylib libcbor.0.11.dylib
 fi
-cd ..
+popd
 
 # 4.2 Fix library linking (this must be done on macOS)
 info "Fixing library linking..."
