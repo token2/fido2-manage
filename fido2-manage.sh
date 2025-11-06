@@ -123,7 +123,7 @@ if $list; then
     echo "$command_output" | while read -r line; do
         if [[ $line =~ ^([^:]+) ]]; then
         
-         echo "Device [$device_count] : $(echo "${line}" | grep -oP '\(([^)]+)\)' | sed 's/(\(.*\))/\1/')"
+         echo "Device [$device_count] : $(echo "${line}" | grep -oP '(?<=\()(.+)(?=\))')"
 
             device_count=$((device_count + 1))
         fi
