@@ -191,7 +191,7 @@ if [[ -n $device ]]; then
         read -r confirmation
         if [[ $confirmation =~ [Yy] ]]; then
             $FIDO2_TOKEN_CMD -D -i "$credential" "$device_string"
-            show_message "Credential deleted successfully."
+            show_message "Passing credential deletion request"
         else
             show_message "Deletion canceled."
         fi
