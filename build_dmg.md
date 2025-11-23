@@ -1,7 +1,3 @@
-Here’s a comprehensive **README content** for your deployment scripts, including instructions to move the `.sh` files up one level. You can tweak it for style or branding:
-
----
-
 # FIDO2 Manager macOS Deployment Scripts
 
 This folder contains the deployment scripts for building, packaging, and preparing the **FIDO2 Manager** application on macOS. These scripts automate the entire process from compiling the C++ CLI binary to creating a distributable DMG with the GUI.
@@ -96,5 +92,6 @@ dist/fido2-manage.dmg
 
 * To rebuild from scratch, you can safely delete `build/`, `dist/`, and `.venv/` before running the script.
 * Use the final DMG to distribute the app; it contains everything needed to run on other macOS machines.
+
 
  
