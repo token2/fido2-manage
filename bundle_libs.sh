@@ -34,11 +34,12 @@ process_binary() {
     
     echo "${indent}Processing: $(basename "$file_to_fix")"
     
-    # Get the list of Homebrew library dependencies, removing trailing colons from otool output
-    local deps=$(otool -L "$file_to_fix" 2>/dev/null | grep '/opt/homebrew/' | awk '{print $1}' | tr -d ':' | grep -v "^$file_to_fix$" || true)
+    # Get the list of Homebrew/local library dependencies
+    # Matches /opt/homebrew/ (Apple Silicon) and /usr/local/ (Intel/Legacy)
+    local deps=$(otool -L "$file_to_fix" 2>/dev/null | grep -E '/opt/homebrew/|/usr/local/' | awk '{print $1}' | tr -d ':' | grep -v "^$file_to_fix$" || true)
     
     if [[ -z "$deps" ]]; then
-        echo "${indent}  No Homebrew dependencies found"
+        echo "${indent}  No external dependencies found"
         return
     fi
     

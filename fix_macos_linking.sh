@@ -44,32 +44,32 @@ otool -L "$BINARY_PATH"
 echo ""
 echo "=== Fixing Library References ==="
 
-# Fix libcbor reference
-echo "Fixing libcbor reference..."
-install_name_tool -change "/opt/homebrew/opt/libcbor/lib/libcbor.0.11.dylib" "@executable_path/libcbor.0.11.dylib" "$BINARY_PATH"
-install_name_tool -change "/opt/homebrew/Cellar/libcbor/0.12.0/lib/libcbor.0.11.dylib" "@executable_path/libcbor.0.11.dylib" "$BINARY_PATH"
+# Fix all homebrew/local references dynamically
+echo "Checking for external references..."
+# capture all dependencies that look like they come from homebrew or local install
+# Exclude system libraries (/usr/lib, /System/Library)
+external_deps=$(otool -L "$BINARY_PATH" | grep -E '/opt/homebrew/|/usr/local/' | awk '{print $1}' || true)
 
-# Fix OpenSSL reference
-echo "Fixing OpenSSL reference..."
-install_name_tool -change "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib" "@executable_path/libcrypto.3.dylib" "$BINARY_PATH"
-
-# Fix libfido2 @rpath reference (from local build)
-echo "Fixing libfido2 @rpath reference..."
-install_name_tool -change "@rpath/libfido2.1.dylib" "@executable_path/libfido2.1.dylib" "$BINARY_PATH"
-
-# Fix any other homebrew references
-echo "Checking for remaining homebrew references..."
-homebrew_deps=$(otool -L "$BINARY_PATH" | grep -E '/opt/homebrew/|/usr/local/' | awk '{print $1}' || true)
-
-if [[ -n "$homebrew_deps" ]]; then
-    echo "Found additional homebrew dependencies to fix:"
+if [[ -n "$external_deps" ]]; then
+    echo "Found external dependencies to fix:"
     while IFS= read -r dep; do
         if [[ -n "$dep" ]]; then
             lib_name=$(basename "$dep")
             echo "  Fixing: $dep -> @executable_path/$lib_name"
-            install_name_tool -change "$dep" "@executable_path/$lib_name" "$BINARY_PATH"
+            # We use || true to continue if for some reason the change fails (though it shouldn't if otool saw it)
+            install_name_tool -change "$dep" "@executable_path/$lib_name" "$BINARY_PATH" || echo "WARNING: Failed to change $dep"
         fi
-    done <<< "$homebrew_deps"
+    done <<< "$external_deps"
+else
+    echo "No external dependencies found (or already fixed)."
+fi
+
+# Special handling for libfido2 if it's linked with @rpath
+# This is sometimes needed if cmake setup uses RPATH
+echo "Checking for @rpath/libfido2..."
+if otool -L "$BINARY_PATH" | grep -q "@rpath/libfido2"; then
+    echo "  Fixing @rpath/libfido2 reference..."
+    install_name_tool -change "@rpath/libfido2.1.dylib" "@executable_path/libfido2.1.dylib" "$BINARY_PATH" || true
 fi
 
 # Fix library IDs for the bundled libraries
