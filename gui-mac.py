@@ -883,7 +883,7 @@ read -p "Press Enter to close this window..."
 # Create main application window
 root = tk.Tk()
 root.geometry("800x600")
-root.title("FIDO2.1 Manager - Python GUI 0.2 - (c) Token2 ")
+root.title("FIDO2.1 Manager - Python GUI for macOS 0.2.1 - (c) Token2 ")
 
 # Create top frame for controls
 top_frame = ttk.Frame(root)
