@@ -3,7 +3,7 @@
 ## Overview
 Welcome to the early-stage version of the FIDO2-Manage Script adaptation for macOS! This tool is designed to manage FIDO2 security keys.  
 ## Features
-- Manage your FIDO2 security keys via the command line. Refer to `[build_dmg.md](build_dmg.md)` for information about building the full application including GUI
+- Manage your FIDO2 security keys via the command line. Refer to [build_dmg.md](build_dmg.md) for information about building the full application including GUI
 
 ## Installation
 
