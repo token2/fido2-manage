@@ -432,7 +432,8 @@ def update_fingerprint_list(device_string, window):
                     for fp in fingerprints:
                         listbox.insert(tk.END, fp)
                 else:
-                    messagebox.showerror("Error", f"Command failed with return code {result.returncode}")
+                    messagebox.showwarning("Error", f"No fingerprints")
+                    listbox.delete(0, tk.END)
                     window.lift()
     except Exception as e:
         messagebox.showerror("Error", f"An error occurred: {e}")
@@ -492,7 +493,33 @@ def fingerprints():
                     refresh_button.pack(side=tk.LEFT, padx=5)
 
                 else:
-                    messagebox.showerror("Error", f"Command failed with return code {result.returncode}")
+                    messagebox.showwarning("Error", f"No fingerprints enrolled")
+                    fingerprint_window = tk.Toplevel()
+                    fingerprint_window.title("Fingerprints")
+
+                    tk.Label(fingerprint_window, text=f"List of Fingerprints for {selected_device}:").pack(pady=10)
+
+                    #global listbox
+                    listbox = tk.Listbox(fingerprint_window, width=50)
+                    listbox.pack(padx=10, pady=10)
+
+               
+
+                    button_frame = tk.Frame(fingerprint_window)
+                    button_frame.pack(pady=10)
+
+                    add_button = tk.Button(button_frame, text="Add", command=lambda: open_terminal(device_string, fingerprint_window))
+                    add_button.pack(side=tk.LEFT, padx=5)
+
+                    delete_button = tk.Button(button_frame, text="Delete", command=lambda: delete_selected(device_string, fingerprint_window))
+                    delete_button.pack(side=tk.LEFT, padx=5)
+
+                    rename_button = tk.Button(button_frame, text="Rename", command=lambda: rename_selected(device_string, fingerprint_window))
+                    rename_button.pack(side=tk.LEFT, padx=5)
+
+                    refresh_button = tk.Button(button_frame, text="Refresh", command=lambda: refresh_terminal(device_string, fingerprint_window))
+                    refresh_button.pack(side=tk.LEFT, padx=5)
+ 
 
             except Exception as e:
                 messagebox.showerror("Error", f"An error occurred: {e}")
