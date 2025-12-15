@@ -5,6 +5,7 @@ import sys
 import tkinter as tk
 import shutil
 from tkinter import messagebox, simpledialog, ttk
+import pexpect
 
 def detect_terminal():
     candidates = [
@@ -55,78 +56,16 @@ def get_device_list():
         return []
 
 
-# Function to execute storage command and prepend its output to the grid
-def execute_storage_command(device_digit):
-    global PIN
-    command = [FIDO_COMMAND, "-storage", "-pin", PIN, "-device", device_digit]
-
-    try:
-        result = subprocess.run(command, capture_output=True, text=True)
-        # Check if the subprocess was executed successfully
-        # print (result)
-        if result.returncode == 0:
-            # Parse the output and insert into the treeview
-            for line in reversed(
-                result.stdout.splitlines()
-            ):  # Insert in reversed order to prepend
-                if ": " in line:
-                    key, value = line.split(": ", 1)
-                    tree.insert(
-                        "", 0, values=(key, value)
-                    )  # Insert at the top of the grid
-
-        else:
-            raise subprocess.CalledProcessError(result.returncode, command)
-    except Exception as e:
-        messagebox.showerror(
-            "Error", f"Command execution failed: {e}\nOutput: {result.stderr}"
-        )
-
-
 # Function to execute info command and append its output to the grid
 def execute_info_command(device_digit):
     global PIN
+
     tree.delete(*tree.get_children())
-    command = [FIDO_COMMAND, "-storage", "-pin", PIN, "-device", device_digit]
+
+    info_command = [FIDO_COMMAND, "-info", "-device", device_digit]
+    
     try:
-        result = subprocess.run(command, capture_output=True, text=True)
-
-        if result.stderr.find("FIDO_ERR_PIN_INVALID") != -1:
-            # exit
-            messagebox.showerror("Error", f"Invalid PIN provided")
-            return
-
-        # Check FIDO_ERR_PIN_AUTH_BLOCKED
-        if result.stderr.find("FIDO_ERR_PIN_AUTH_BLOCKED") != -1:
-            # exit
-            messagebox.showerror(
-                "Error", f"Wrong PIN provided to many times. Reinsert the key"
-            )
-            return
-
-        # Check FIDO_ERR_PIN_REQUIRED
-        if result.stderr.find("FIDO_ERR_PIN_REQUIRED") != -1:
-            # exit
-            messagebox.showerror(
-                "Error",
-                f"No PIN set for this key. Passkeys can be managed only with a PIN set. You will be prompted to create a PIN on the next window",
-            )
-            command = [FIDO_COMMAND, "-setPIN", "-device", device_digit]
-            if sys.platform.startswith("win"):
-                subprocess.Popen(["start", "cmd", "/c"] + command, shell=True)
-            elif sys.platform.startswith("linux"):
-                subprocess.Popen([TERM] + TERM_FLAG + command)
-
-            return
-
-        # Check FIDO version
-        if result.stderr.find("FIDO_ERR_INVALID_CBOR") != -1:
-            # exit
-            messagebox.showerror(
-                "Error",
-                f"This is an older key (probably FIDO2.0). No passkey management is possible with this key. Only basic information will be shown.",
-            )
-
+        result = subprocess.run(info_command, capture_output=True, text=True)
         # Check if the subprocess was executed successfully
         if result.returncode == 0:
             # Parse the output and insert into the treeview
@@ -142,20 +81,53 @@ def execute_info_command(device_digit):
         messagebox.showerror(
             "Error", f"Command execution failed: {e}\nOutput: {result.stderr}"
         )
-    command = [FIDO_COMMAND, "-info", "-pin", PIN, "-device", device_digit]
+
+    storage_command = f"{FIDO_COMMAND} -storage -device {device_digit}"
+    
     try:
-        result = subprocess.run(command, capture_output=True, text=True)
-        # Check if the subprocess was executed successfully
-        if result.returncode == 0:
-            # Parse the output and insert into the treeview
-            for line in result.stdout.splitlines():
-                if ": " in line:
-                    key, value = line.split(": ", 1)
-                    tree.insert(
-                        "", tk.END, values=(key, value)
-                    )  # Append to the end of the grid
-        else:
-            raise subprocess.CalledProcessError(result.returncode, command)
+        child = pexpect.spawn(storage_command, encoding="utf-8", timeout=10)
+
+        index = child.expect([
+            r"Enter PIN for",
+            pexpect.EOF,
+            pexpect.TIMEOUT
+            ]
+        )
+        
+        # catch stdout from cli
+        output = child.before
+
+        if index == 0:
+            pin_button.config(text="Change PIN", state=tk.ACTIVE, command=change_pin)
+        
+        #if PIN is not set
+        if index == 1:
+            messagebox.showwarning(
+                "Warning",
+                "No PIN is set for this key. You must set a PIN before managing passkeys."
+            )
+            pin_button.config(text="Set PIN", state=tk.ACTIVE, command=set_pin)
+
+        if index == 2:
+            if "FIDO_ERR_PIN_REQUIRED" in output:
+                pin_button.config(text="Set PIN", state=tk.ACTIVE, command=set_pin)
+
+            if "FIDO_ERR_PIN_INVALID" in output:
+                messagebox.showerror("Error", f"Invalid PIN provided")
+
+            if "FIDO_ERR_PIN_AUTH_BLOCKED" in output:
+                messagebox.showerror("Error", f"Wrong PIN provided to many times. Reinsert the key")
+
+            if "FIDO_ERR_INVALID_CBOR" in output:
+                messagebox.showerror(
+                    "Error",
+                    f"This is an older key (probably FIDO2.0). No passkey management is possible with this key. Only basic information will be shown.",
+                )
+
+            # Unexpected EOF
+            messagebox.showerror("Unexpected Device Output", output)
+            return False
+
     except Exception as e:
         messagebox.showerror(
             "Error", f"Command execution failed: {e}\nOutput: {result.stderr}"
@@ -163,32 +135,29 @@ def execute_info_command(device_digit):
 
 
 # Function to set the PIN
-def set_pin():
+def get_pin():
     global PIN
     PIN = simpledialog.askstring(
-        "PIN Code", "Enter PIN code (enter 0000 if no PIN is set/known):", show="*"
+        "PIN Code", "Enter PIN code:", show="*"
     )
 
 
 # Function to handle selection event
 def on_device_selected(event):
-    global PIN
     selected_device = device_var.get()
     # Extract the digit inside the first pair of square brackets
     match = re.search(r"\[(\d+)\]", selected_device)
-    PIN = None
 
-    set_pin()
-    # print (pin)
     if match:
         device_digit = match.group(1)
 
-        if PIN is not None:
-            execute_info_command(device_digit)
+        if (execute_info_command(device_digit) == "PIN set"):
             check_passkeys_button_state()
             check_changepin_button_state()
+
     else:
         messagebox.showinfo("Device Selected", "No digit found in the selected device")
+
 
 
 # Function to check if the "passkeys" button should be enabled
@@ -222,7 +191,7 @@ def check_changepin_button_state():
             except ValueError:
                 pass
 
-    change_pin_button.config(state=passkeys_button_state)
+    pin_button.config(state=passkeys_button_state)
 
 
 # Function to handle "passkeys" button click
@@ -293,22 +262,171 @@ def on_passkeys_button_click():
     else:
         messagebox.showinfo("Device Selected", "No digit found in the selected device")
 
+def set_pin():
+    selected_device = device_var.get()
+    match = re.search(r"\[(\d+)\]", selected_device)
+    if not match:
+        return
+
+    device_digit = match.group(1)
+
+    # Ask for new PIN
+    while True:    
+
+        new_pin = simpledialog.askstring(
+            "New PIN", "Enter your new PIN code:", show="*"
+        )
+        new_pin_confirmed = simpledialog.askstring(
+            "Confirm new PIN", "Enter your new PIN code:", show="*"
+        )
+        if (new_pin == new_pin_confirmed):
+            break
+        else:
+            messagebox.showerror("Error", "New PIN entries do not match!")
+            continue
+
+    command = f"{FIDO_COMMAND} -setPIN -device {device_digit}"
+
+    # Enter new PIN in interactive shell
+    try:
+        child = pexpect.spawn(command, encoding="utf-8", timeout=20)
+
+        child.expect("Enter new PIN")
+        child.sendline(new_pin)
+        child.expect("Enter the same PIN again")
+        child.sendline(new_pin_confirmed)
+
+        PIN = new_pin
+
+        child.expect(pexpect.EOF)
+        output = child.before.strip()
+
+        pin_button.config(text="Change PIN",state=tk.ACTIVE, command=change_pin)
+
+        if "FIDO_ERR_PIN_POLICY_VIOLATION" in output:
+            match = re.search(r"minpinlen:\s*(\d+)", output)
+            if match:
+                min_pin_len = match.group(1)
+            messagebox.showerror(
+                "PIN not accepted.",
+                f"The provided PIN does not fullfill the requirements of you device.\n\
+                    The PIN has to be at least {min_pin_len} long and must not be a easy guessable sequence, like e.g. 123456"
+            )
+
+        elif "error" in output.lower() or "FIDO_ERR" in output:
+            messagebox.showerror("PIN Change Failed", output)
+        else:
+            messagebox.showinfo("Success", "PIN successfully set!")
+
+    except pexpect.exceptions.TIMEOUT:
+        messagebox.showerror("Timeout", "The device did not respond in time.")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
 
 def change_pin():
-    # Get the selected device and PIN
+    global PIN
+    if PIN is None:
+        get_pin()
+
     selected_device = device_var.get()
-    # Extract the digit inside the first pair of square brackets
     match = re.search(r"\[(\d+)\]", selected_device)
-    if match:
-        device_digit = match.group(1)
-        command = [FIDO_COMMAND, "-changePIN", "-device", device_digit]
-        if sys.platform.startswith("win"):
-            subprocess.Popen(["start", "cmd", "/c"] + command, shell=True)
-        elif sys.platform.startswith("linux"):
-            subprocess.Popen([TERM] + TERM_FLAG + command)
+    if not match:
+        return
 
-    pass
+    device_digit = match.group(1)
+    while True:
+        old_pin = PIN       
 
+        new_pin = simpledialog.askstring(
+            "New PIN", "Enter your new PIN code:", show="*"
+        )
+        new_pin_confirmed = simpledialog.askstring(
+            "Confirm new PIN", "Enter your new PIN code:", show="*"
+        )
+        if (new_pin == new_pin_confirmed):
+            break
+        else:
+            messagebox.showerror("Error", "New PIN entries do not match!")
+            continue
+
+    command = f"{FIDO_COMMAND} -changePIN -device {device_digit}"
+
+    try:
+        child = pexpect.spawn(command, encoding="utf-8", timeout=20)
+
+        # --- Detect touch prompt ---
+        i = child.expect([
+            "Touch", 
+            "Tap", 
+            "Waiting for user", 
+            "Enter current PIN",  # sometimes no touch required
+            pexpect.EOF,
+            pexpect.TIMEOUT
+        ])
+
+        if i in [0, 1, 2]:  
+            # Prompt the user in the GUI
+            messagebox.showinfo(
+                "Touch Required",
+                "Please touch your FIDO security key to continue."
+            )
+            # Now wait until the key is actually touched
+            child.expect("Enter current PIN")
+
+        # Now continue with PIN entry
+        child.sendline(old_pin)
+
+        child.expect("Enter new PIN")
+        child.sendline(new_pin)
+        child.expect("Enter the same PIN again")
+        child.sendline(new_pin_confirmed)
+
+        PIN = new_pin
+
+        output = child.before.strip()
+
+        testminlen = child.before
+        
+        idx = child.expect(["FIDO_ERR_PIN_POLICY_VIOLATION", pexpect.EOF], timeout=1)
+        if idx == 0:
+            command = f"{FIDO_COMMAND} -info -device {device_digit}"
+                # Run the command
+            info = pexpect.spawn(command, encoding="utf-8")
+            info.expect(pexpect.EOF)
+            info_text = info.before  # <-- now this contains the full text
+
+            print("info_text:\n", info_text)
+
+            # extract minpinlen
+            match = re.search(r"minpinlen:\s*(\d+)", info_text)
+            if match:
+                min_pin_len = match.group(1)
+            else:
+                min_pin_len = "?"
+
+            messagebox.showerror(
+                "PIN not accepted",
+                f"The provided PIN violates the device policy.\n"
+                f"The PIN must be at least {min_pin_len} digits long and "
+                f"must not be an easily guessable sequence (e.g. 123456)."
+            )
+
+            return
+
+        # If no violation detected, EOF happened normally
+        child.expect(pexpect.EOF)
+        output = child.before.strip()
+
+        if "error" in output.lower() or "FIDO_ERR" in output:
+            messagebox.showerror("PIN Change Failed", output)
+        else:
+            messagebox.showinfo("Success", "PIN successfully changed!")
+
+    except pexpect.exceptions.TIMEOUT:
+        messagebox.showerror("Timeout", "The device did not respond in time.")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
 
 def refresh_combobox():
     # Implement your refresh logic here
@@ -317,7 +435,7 @@ def refresh_combobox():
     device_combobox.set("")  # Clear the selected value
     tree.delete(*tree.get_children())
     passkeys_button.config(state=tk.DISABLED)
-    change_pin_button.config(state=tk.DISABLED)
+    pin_button.config(state=tk.DISABLED)
     device_list = (
         get_device_list()
     )  # Assuming you have a function to get the device list
@@ -458,12 +576,10 @@ passkeys_button = ttk.Button(
 )
 passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-# Create the "Change PIN" button
-change_pin_button = ttk.Button(
-    root, text="Change PIN", state=tk.DISABLED, command=change_pin
+pin_button = ttk.Button(
+    root, text="Set PIN", state=tk.DISABLED, command=set_pin
 )
-change_pin_button.pack(side=tk.LEFT, padx=5, pady=10)
-
+pin_button.pack(side=tk.LEFT, padx=5, pady=10)
 
 about_button = ttk.Button(root, text="About", command=show_about_message)
 about_button.pack(side=tk.RIGHT, padx=5, pady=10)
