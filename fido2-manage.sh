@@ -17,6 +17,7 @@ setPIN=false
 reset=false
 uvs=false
 uvd=false
+setMinimumPIN=""
 fingerprint=false
 help=false
 
@@ -107,7 +108,7 @@ if $help; then
 fi
 
 # Check if no arguments are specified, then show help
-if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $help; then
+if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setMinimumPIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $help; then
     show_help
     exit 1
 fi
@@ -183,6 +184,12 @@ if [[ -n $device ]]; then
     if $setPIN; then
         show_message "Enter and confirm the PIN as prompted below."
         $FIDO2_TOKEN_CMD -S "$device_string"
+        exit 0
+    fi
+
+    if [[ -n $setMinimumPIN ]]; then
+        show_message "Setting minimum PIN length to $setMinimumPIN on device $device"
+        "$FIDO2_TOKEN_CMD" -S -l "$setMinimumPIN" "$device_string"
         exit 0
     fi
 
