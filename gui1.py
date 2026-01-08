@@ -108,6 +108,11 @@ def on_device_selected(event):
     else:
         messagebox.showinfo("Device Selected", "No digit found in the selected device")
 
+def get_pin():
+    global PIN
+    PIN = simpledialog.askstring("PIN Code", "Enter your PIN code:", show="*")
+    return PIN
+
 def on_passkeys_button_click():
     global PIN
     selected_device = device_var.get()
@@ -119,7 +124,7 @@ def on_passkeys_button_click():
     device_digit = match.group(1)
 
     if PIN is None:
-        set_pin()
+        get_pin()
         if PIN is None:
             return
 
