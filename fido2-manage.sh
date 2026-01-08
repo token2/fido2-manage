@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 FIDO2_TOKEN_CMD="/usr/local/bin/fido2-token2"
 
 list=false
@@ -34,7 +33,7 @@ while [[ "$#" -gt 0 ]]; do
         -device) device="$2"; shift ;;
         -pin) pin="$2"; shift ;;
         -storage) storage=true ;;
-        -fingerprint) fingerprint=true ;;        
+        -fingerprint) fingerprint=true ;;
         -residentKeys) residentKeys=true ;;
         -domain) domain="$2"; shift ;;
         -delete) delete=true ;;
@@ -50,8 +49,6 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
-
-
 
 show_help() {
     cat << EOF
@@ -84,10 +81,10 @@ Examples:
 
 - Sets PIN of a specific device:
   ./fido2-manage.sh -setPIN -device 1
-  
+
 - Enrolls a fingerprint to a specific device (biometric models only, simplified method - does not allow deleting fingerprints):
   ./fido2-manage.sh -fingerprint -device 1
-  
+
 - Perform a factory reset on a specific device:
   ./fido2-manage.sh -reset -device 1
 
@@ -102,13 +99,11 @@ Examples:
 EOF
 }
 
-# Display help if -help parameter is provided
 if $help; then
     show_help
     exit 0
 fi
 
-# Check if no arguments are specified, then show help
 if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setMinimumPIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $help; then
     show_help
     exit 1
@@ -124,9 +119,7 @@ if $list; then
     device_count=1
     echo "$command_output" | while read -r line; do
         if [[ $line =~ ^([^:]+) ]]; then
-        
-         echo "Device [$device_count] : $(echo "${line}" | grep -oP '(?<=\()(.+)(?=\))')"
-
+            echo "Device [$device_count] : $(echo "${line}" | grep -oP '(?<=\()(.+)(?=\))')"
             device_count=$((device_count + 1))
         fi
     done
@@ -191,6 +184,10 @@ if [[ -n $device ]]; then
     if [[ -n $setMinimumPIN ]]; then
         show_message "Setting minimum PIN length to $setMinimumPIN on device $device"
         "$FIDO2_TOKEN_CMD" -S -l "$setMinimumPIN" "$device_string"
+        if [ $? -ne 0 ]; then
+            show_message "Error: Failed to set minimum PIN length." "Error"
+            exit 1
+        fi
         exit 0
     fi
 
@@ -206,51 +203,45 @@ if [[ -n $device ]]; then
         exit 0
     fi
 
-# Fingerprint enrollment
-if $fingerprint; then
-echo "Enrolling fingerprints (for bio models only)"
-    $FIDO2_TOKEN_CMD -S -e "$device_string" $([[ -n $pin ]] && echo "-w $pin")
-    exit 0
-fi    
-# Main logic
-if $storage; then
-    $FIDO2_TOKEN_CMD -I -c "$device_string" $([[ -n $pin ]] && echo "-w $pin")
-    exit 0
-elif $residentKeys; then
-    if [[ -n $domain ]]; then
-        domain_command="$FIDO2_TOKEN_CMD -L -k \"$domain\" \"$device_string\" $([[ -n $pin ]] && echo "-w $pin")"
-        domain_output=$(eval $domain_command)
-        
-        
-
-        # Process the output line by line
-        echo "$domain_output" | while read -r line; do
-            key_id=$(echo "$line" | awk '{print $1}')
-            credential_id=$(echo "$line" | awk '{print $2}')
-            user_field=$(echo "$line" | awk '{print $3 , $4}')
-            email_field=$(echo "$line" | awk '{print $5, $6}')
-
-            if [[ "$user_field" == "(null)" ]]; then
-                user_field=""
-            fi
-
-            # Determine if user_field is an email
-            if [[ "$user_field" == *"@"* ]]; then
-                email=$user_field
-                user=""
-            else
-                user=$user_field
-                email=$email_field
-            fi
-
-            show_message "Credential ID: $credential_id, User: $user $email"
-        done
-    else
-        $FIDO2_TOKEN_CMD -L -r "$device_string" $(if [[ -n $pin ]]; then echo "-w $pin"; fi)
+    if $fingerprint; then
+        echo "Enrolling fingerprints (for bio models only)"
+        $FIDO2_TOKEN_CMD -S -e "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+        exit 0
     fi
-    exit 0
-fi
 
+    if $storage; then
+        $FIDO2_TOKEN_CMD -I -c "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+        exit 0
+    elif $residentKeys; then
+        if [[ -n $domain ]]; then
+            domain_command="$FIDO2_TOKEN_CMD -L -k \"$domain\" \"$device_string\" $([[ -n $pin ]] && echo "-w $pin")"
+            domain_output=$(eval $domain_command)
+
+            echo "$domain_output" | while read -r line; do
+                key_id=$(echo "$line" | awk '{print $1}')
+                credential_id=$(echo "$line" | awk '{print $2}')
+                user_field=$(echo "$line" | awk '{print $3 , $4}')
+                email_field=$(echo "$line" | awk '{print $5, $6}')
+
+                if [[ "$user_field" == "(null)" ]]; then
+                    user_field=""
+                fi
+
+                if [[ "$user_field" == *"@"* ]]; then
+                    email=$user_field
+                    user=""
+                else
+                    user=$user_field
+                    email=$email_field
+                fi
+
+                show_message "Credential ID: $credential_id, User: $user $email"
+            done
+        else
+            $FIDO2_TOKEN_CMD -L -r "$device_string" $(if [[ -n $pin ]]; then echo "-w $pin"; fi)
+        fi
+        exit 0
+    fi
 
     if $info; then
         command_output=$($FIDO2_TOKEN_CMD -I "$device_string")
