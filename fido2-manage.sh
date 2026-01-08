@@ -50,6 +50,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+
 show_help() {
     cat << EOF
 FIDO2 Token Management Tool
