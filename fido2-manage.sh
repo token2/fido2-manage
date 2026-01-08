@@ -42,6 +42,7 @@ while [[ "$#" -gt 0 ]]; do
         -changePIN) changePIN=true ;;
         -setPIN) setPIN=true ;;
         -reset) reset=true ;;
+        -setMinimumPIN) setMinimumPIN="$2"; shift ;;
         -uvs) uvs=true ;;
         -uvd) uvd=true ;;
         -help) help=true ;;
