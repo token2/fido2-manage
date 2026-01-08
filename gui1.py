@@ -1,3 +1,26 @@
+def execute_info_command_no_pin(device_digit):
+    """Execute info command without PIN - just show basic device info"""
+    tree.delete(*tree.get_children())
+    
+    # Execute info command without PIN
+    info_command = [FIDO_COMMAND, "-info", "-device", device_digit]
+    try:
+        result = subprocess.run(info_command, capture_output=True, text=True)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if ": " in line:
+                    key, value = line.split(": ", 1)
+                    tree.insert("", tk.END, values=(key, value))
+        else:
+            raise subprocess.CalledProcessError(result.returncode, info_command)
+    except Exception as e:
+        messagebox.showerror(
+            "Error", f"Command execution failed: {e}\nOutput: {result.stderr}"
+        )
+    
+    return True
+
+
 import os
 import re
 import subprocess
@@ -115,7 +138,7 @@ def execute_info_command(device_digit):
                 "Warning",
                 "No PIN set for this key. You must set a PIN before managing passkeys."
             )
-            pin_button.config(text="Set PIN", state=tk.ACTIVE, command=set_pin)
+            change_pin_button.config(text="Set PIN", state=tk.ACTIVE, command=set_pin)
             return False
 
         if result.stderr.find("FIDO_ERR_INVALID_CBOR") != -1:
@@ -178,19 +201,11 @@ def on_device_selected(event):
 
 # Function to check if the "passkeys" button should be enabled
 def check_passkeys_button_state():
-    passkeys_button_state = tk.DISABLED
-    for child in tree.get_children():
-        values = tree.item(child, "values")
-        if values and len(values) == 2 and values[0] == "existing rk(s)":
-            try:
-                rk_count = int(values[1])
-                if rk_count > 0:
-                    passkeys_button_state = tk.NORMAL
-                    break
-            except ValueError:
-                pass
-
-    passkeys_button.config(state=passkeys_button_state)
+    # Enable passkeys button if device is selected
+    if device_var.get():
+        passkeys_button.config(state=tk.NORMAL)
+    else:
+        passkeys_button.config(state=tk.DISABLED)
 
 
 # Function to check if the change PIN button should be enabled
@@ -213,78 +228,80 @@ def check_changepin_button_state():
 # Function to handle "passkeys" button click
 def on_passkeys_button_click():
     global PIN
-    # Get the selected device and PIN
+    
+    # Get the selected device
     selected_device = device_var.get()
     match = re.search(r"\[(\d+)\]", selected_device)
-    if match:
-        device_digit = match.group(1)
-        
-        # Prompt for PIN if not already set
-        if PIN is None:
-            get_pin()
-        
-        # Check again if PIN was entered
-        if PIN is None:
-            messagebox.showwarning("PIN Required", "PIN is required to manage passkeys.")
-            return
-        
-        # Execute the command to get resident keys
-        command = [
-            FIDO_COMMAND,
-            "-residentKeys",
-            "-pin",
-            PIN,
-            "-device",
-            device_digit,
-        ]
-        try:
-            result = subprocess.run(command, capture_output=True, text=True)
-            if result.returncode == 0:
-                # Parse the domains from the output
-                domains = []
-                for line in result.stdout.splitlines():
-                    match = re.search(r"= (.+)$", line)
-                    if match:
-                        domains.append(match.group(1))
+    if not match:
+        messagebox.showinfo("Device Selected", "No digit found in the selected device")
+        return
+    
+    device_digit = match.group(1)
+    
+    # Prompt for PIN if not already set
+    if PIN is None:
+        get_pin()
+    
+    # Check again if PIN was entered
+    if PIN is None:
+        messagebox.showwarning("PIN Required", "PIN is required to manage passkeys.")
+        return
+    
+    # Execute the command to get resident keys
+    command = [
+        FIDO_COMMAND,
+        "-residentKeys",
+        "-pin",
+        PIN,
+        "-device",
+        device_digit,
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode == 0:
+            # Parse the domains from the output
+            domains = []
+            for line in result.stdout.splitlines():
+                match = re.search(r"= (.+)$", line)
+                if match:
+                    domains.append(match.group(1))
 
-                # Execute the command for each domain
-                cumulated_output = []
-                for domain in domains:
+            # Execute the command for each domain
+            cumulated_output = []
+            for domain in domains:
 
-                    domain_command = [
-                        FIDO_COMMAND,
-                        "-residentKeys",
-                        "-domain",
-                        domain,
-                        "-pin",
-                        PIN,
-                        "-device",
-                        device_digit,
-                    ]
-                    domain_result = subprocess.run(
-                        domain_command, capture_output=True, text=True
+                domain_command = [
+                    FIDO_COMMAND,
+                    "-residentKeys",
+                    "-domain",
+                    domain,
+                    "-pin",
+                    PIN,
+                    "-device",
+                    device_digit,
+                ]
+                domain_result = subprocess.run(
+                    domain_command, capture_output=True, text=True
+                )
+
+                if domain_result.returncode == 0:
+                    cumulated_output.append(
+                        f"Domain: {domain}\n{domain_result.stdout}"
+                    )
+                else:
+                    raise subprocess.CalledProcessError(
+                        domain_result.returncode, domain_command
                     )
 
-                    if domain_result.returncode == 0:
-                        cumulated_output.append(
-                            f"Domain: {domain}\n{domain_result.stdout}"
-                        )
-                    else:
-                        raise subprocess.CalledProcessError(
-                            domain_result.returncode, domain_command
-                        )
-
-                # Show the cumulated output in a new window
-                cumulated_output_str = "\n\n".join(cumulated_output)
-                show_output_in_new_window(cumulated_output_str, device_digit)
-            else:
-                raise subprocess.CalledProcessError(result.returncode, command)
-        except Exception as e:
-            messagebox.showerror(
-                "Error", f"Command execution failed: {e}\nOutput: {result.stderr}"
-            )
-    else:
-        messagebox.showinfo("Device Selected", "No digit found in the selected device")
+            # Show the cumulated output in a new window
+            cumulated_output_str = "\n\n".join(cumulated_output)
+            show_output_in_new_window(cumulated_output_str, device_digit)
+        else:
+            raise subprocess.CalledProcessError(result.returncode, command)
+    except Exception as e:
+        messagebox.showerror(
+            "Error", f"Command execution failed: {e}\nOutput: {result.stderr}"
+        )
 
 
 def set_pin():
