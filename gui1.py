@@ -168,7 +168,7 @@ def on_device_selected(event):
         device_digit = match.group(1)
         # Prompt for PIN
         get_pin()
-        if PIN is not None:
+    if PIN is not None:
             if execute_info_command(device_digit):
                 check_passkeys_button_state()
                 check_changepin_button_state()
