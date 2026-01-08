@@ -9,8 +9,8 @@ import pexpect
 
 def detect_terminal():
     candidates = [
-        ("gnome-terminal", ["--"]),     # modern Ubuntu defaults
-        ("x-terminal-emulator", ["-e"]),# Debian/Ubuntu wrapper
+        ("gnome-terminal", ["--"]),
+        ("x-terminal-emulator", ["-e"]),
         ("xterm", ["-e"]),
         ("konsole", ["-e"]),
         ("lxterminal", ["-e"]),
@@ -22,21 +22,15 @@ def detect_terminal():
             return term, flag
     return None, None
 
-# Define the command to execute
 FIDO_COMMAND = "./fido2-manage.sh"
-
-# Checks the terminal emulator from which "gui.py" is executed
-# and sets it for the subprocess commands
 TERM, TERM_FLAG = detect_terminal()
+
 if TERM is None:
     messagebox.showerror("Error", "No supported terminal emulator found. Please install xterm or gnome-terminal.")
+    sys.exit(1)
 
-# Command below for Windows
-# FIDO_COMMAND = 'fido2-manage-ui.exe'
-# Global variable to store the PIN
 PIN = None
 
-# Function to get device list from fido2-manage-ui.exe
 def get_device_list():
     try:
         result = subprocess.run([FIDO_COMMAND, "-list"], capture_output=True, text=True)
@@ -46,7 +40,6 @@ def get_device_list():
         print(f"Error executing device list command: {e}")
         return []
 
-# Function to execute info command and append its output to the grid
 def execute_info_command(device_digit):
     global PIN
     tree.delete(*tree.get_children())
@@ -69,13 +62,7 @@ def execute_info_command(device_digit):
 
     try:
         child = pexpect.spawn(storage_command, encoding="utf-8", timeout=10)
-
-        index = child.expect([
-            r"Enter PIN for",
-            pexpect.EOF,
-            pexpect.TIMEOUT
-        ])
-
+        index = child.expect([r"Enter PIN for", pexpect.EOF, pexpect.TIMEOUT])
         output = child.before
 
         if index == 0:
@@ -93,15 +80,15 @@ def execute_info_command(device_digit):
                 pin_button.config(text="Set PIN", state=tk.ACTIVE, command=set_pin)
 
             if "FIDO_ERR_PIN_INVALID" in output:
-                messagebox.showerror("Error", f"Invalid PIN provided")
+                messagebox.showerror("Error", "Invalid PIN provided")
 
             if "FIDO_ERR_PIN_AUTH_BLOCKED" in output:
-                messagebox.showerror("Error", f"Wrong PIN provided too many times. Reinsert the key")
+                messagebox.showerror("Error", "Wrong PIN provided too many times. Reinsert the key")
 
             if "FIDO_ERR_INVALID_CBOR" in output:
                 messagebox.showerror(
                     "Error",
-                    f"This is an older key (probably FIDO2.0). No passkey management is possible with this key. Only basic information will be shown.",
+                    "This is an older key (probably FIDO2.0). No passkey management is possible with this key. Only basic information will be shown.",
                 )
 
             messagebox.showerror("Unexpected Device Output", output)
@@ -110,12 +97,6 @@ def execute_info_command(device_digit):
     except Exception as e:
         messagebox.showerror("Error", f"Command execution failed: {e}\nOutput: {result.stderr}")
 
-# Function to set the PIN
-def get_pin():
-    global PIN
-    PIN = simpledialog.askstring("PIN Code", "Enter PIN code:", show="*")
-
-# Function to handle selection event
 def on_device_selected(event):
     selected_device = device_var.get()
     match = re.search(r"\[(\d+)\]", selected_device)
@@ -123,11 +104,10 @@ def on_device_selected(event):
     if match:
         device_digit = match.group(1)
         execute_info_command(device_digit)
-        passkeys_button.config(state=tk.NORMAL)  # Always enable the Passkeys button
+        passkeys_button.config(state=tk.NORMAL)
     else:
         messagebox.showinfo("Device Selected", "No digit found in the selected device")
 
-# Function to handle "passkeys" button click
 def on_passkeys_button_click():
     global PIN
     selected_device = device_var.get()
@@ -425,20 +405,16 @@ def show_about_message():
         "The FIDO2.1 Security Key Management Tool is a utility designed to manage and interact with FIDO2.1 security keys.\r\nIt provides functionalities to view information, manage relying parties, and perform various operations on connected FIDO2.1 devices.\r\n\r\n(c)TOKEN2 Sarl\r\nVersoix, Switzerland",
     )
 
-# Create the main application window
 root = tk.Tk()
 root.geometry("700x600")
 root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
 
-# Create a frame for the first three elements
 top_frame = ttk.Frame(root)
 top_frame.pack(side=tk.TOP, fill=tk.X)
 
-# Create a label for the dropdown
 label = tk.Label(top_frame, text="Select Device:")
 label.pack(side=tk.LEFT, padx=10, pady=10)
 
-# Create a ComboBox (dropdown) and populate it with device list
 device_list = get_device_list()
 if not device_list:
     device_list = ["No devices found."]
@@ -449,11 +425,9 @@ device_combobox = ttk.Combobox(
 device_combobox.pack(side=tk.LEFT, padx=10, pady=10)
 device_combobox.bind("<<ComboboxSelected>>", on_device_selected)
 
-# Create the refresh button
 refresh_button = tk.Button(top_frame, text="Refresh", command=refresh_combobox)
 refresh_button.pack(side=tk.LEFT, padx=10, pady=10)
 
-# Create a Treeview widget for displaying output with scrollbars
 tree_frame = ttk.Frame(root)
 tree_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
 tree_scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical")
@@ -473,21 +447,17 @@ tree.heading("Key", text="Key")
 tree.heading("Value", text="Value")
 tree.pack(expand=True, fill=tk.BOTH)
 
-# Create the "Passkeys" button
 passkeys_button = ttk.Button(
     root, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
 )
 passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-# Create the "Set PIN" button
 pin_button = ttk.Button(
     root, text="Set PIN", state=tk.DISABLED, command=set_pin
 )
 pin_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-# Create the "About" button
 about_button = ttk.Button(root, text="About", command=show_about_message)
 about_button.pack(side=tk.RIGHT, padx=5, pady=10)
 
-# Run the Tkinter main loop
 root.mainloop()
