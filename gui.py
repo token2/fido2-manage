@@ -6,6 +6,7 @@ import tkinter as tk
 import shutil
 from tkinter import messagebox, simpledialog, ttk
 import pexpect
+import argparse
 
 def detect_terminal():
     candidates = [
@@ -30,6 +31,44 @@ if TERM is None:
     sys.exit(1)
 
 PIN = None
+
+def set_dpi_awareness():
+    
+    # Set rowheight based on screen DPI and size
+    # Get screen's DPI (dots per inch)
+    try:
+        # For Windows, use ctypes to get DPI awareness
+        if sys.platform.startswith("win"):
+            awareness = ctypes.c_int()
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI aware
+            hdc = ctypes.windll.user32.GetDC(0)
+            dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)
+        else:
+            # For Linux/Mac, use Tkinter's winfo_fpixels
+            root = tk.Tk()
+            dpi = root.winfo_fpixels('1i')
+            root.destroy()
+    except Exception:
+        dpi = 96  # Fallback to standard DPI
+
+    # Get screen height in pixels
+    try:
+        root = tk.Tk()
+        screen_height = root.winfo_screenheight()
+        root.destroy()
+    except Exception:
+        screen_height = 1080  # Fallback
+
+    # Calculate rowheight: base it on DPI and screen height
+    # Typical rowheight at 96dpi and 1080p is 20, so scale proportionally
+    base_rowheight = 40
+    base_dpi = 96
+    base_screen_height = 1080
+    rowheight = int(base_rowheight * (dpi / base_dpi) * (screen_height / base_screen_height))
+    rowheight = max(18, min(rowheight, 40))  # Clamp to reasonable range
+
+    style = ttk.Style()
+    style.configure("Treeview", rowheight=rowheight)
 
 def get_device_list():
     try:
@@ -410,7 +449,17 @@ def show_about_message():
         "The FIDO2.1 Security Key Management Tool is a utility designed to manage and interact with FIDO2.1 security keys.\r\nIt provides functionalities to view information, manage relying parties, and perform various operations on connected FIDO2.1 devices.\r\n\r\n(c)TOKEN2 Sarl\r\nVersoix, Switzerland",
     )
 
+# parse command-line arguments
+parser = argparse.ArgumentParser(description="FIDO2.1 Manager GUI")
+parser.add_argument("-dpi", action="store_true", help="Set DPI awareness for high-DPI displays")
+args = parser.parse_args()
+
 root = tk.Tk()
+
+# Set DPI awareness if requested
+if args.dpi:
+    set_dpi_awareness()
+
 root.geometry("700x600")
 root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
 
