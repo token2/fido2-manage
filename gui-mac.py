@@ -797,6 +797,8 @@ if [[ ! -f "$CLI_SCRIPT" ]]; then
 fi
 
 echo "✅ Found FIDO2 Manager app"
+echo "setting permissions"
+chmod 755 $CLI_SCRIPT
 
 
 # Ensure /usr/local/bin exists
