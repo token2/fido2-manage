@@ -106,7 +106,7 @@ To allow coexistence with the original tool, our version will be compiled and in
 ```bash
 git clone https://github.com/Token2/fido2-manage.git
 
-sudo pacman -S libfido2 cmake libcbor tk
+sudo pacman -S libfido2 cmake libcbor tk python-pexpect
 
 cd fido2-manage
 
