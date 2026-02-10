@@ -11,7 +11,9 @@ file for the full license text.
 # Supported Platforms
 
 *fido2-manage* should work on any Linux distribution, but we develop and test using Ubuntu.  
-For openSUSE users, a third-party guide is available here: [Installing TOKEN2 FIDO token on openSUSE Tumbleweed](https://www.chilli.sh/installing-token2-fido-token-on-opensuse-tumbleweed/).
+For openSUSE users, a third-party guide is available here: [Installing TOKEN2 FIDO token on openSUSE Tumbleweed](https://www.chilli.sh/posts/installing-token2-fido-token-on-opensuse-tumbleweed/).
+
+
 
 This library is partially forked from [libfido2](https://github.com/Yubico/libfido2) to provide a FIDO2.1 key management tool under the Linux platform (we already have a solution for Windows).
 
