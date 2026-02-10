@@ -126,5 +126,32 @@ python3 gui.py
 
 ```
 
+### Fedora ###
+
+The below installation instructions were written for Fedora 43, but might also work on other versions
+of the operating system.
+
+```sh
+git clone https://github.com/Token2/fido2-manage.git
+
+cd fido2-manage
+
+sudo dnf install -y zlib-devel pkg-config cmake libcbor-devel pcsc-lite-devel openssl-devel systemd-devel
+
+rm -rf build && mkdir build && cd build && cmake -USE_PCSC=ON ..
+
+cd ..
+
+make -C build
+
+sudo make -C build install
+
+sudo ldconfig
+
+chmod 755 fido2-manage.sh
+
+python3 gui.py
+```
+
 ### macOS ###
 [Refer to this file for macOS instructions](README.MACOS.md)
