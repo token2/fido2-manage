@@ -54,6 +54,10 @@ The GUI wrapper (`gui.py`) created with Python3 is included in the package and s
 
 `sudo apt install -y python3-tk`
 
+The steps above are also suitable for Debian releases. However, for the GUI on Debian, the python3-pexpect module must also be installed.
+
+`sudo apt install -y python3-pexpect`
+
 To run the script, execute it using Python from the same folder:
 
 `python3 gui.py`
