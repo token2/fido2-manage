@@ -17,6 +17,7 @@ def detect_terminal():
         ("lxterminal", ["-e"]),
         ("tilix", ["-e"]),
         ("mate-terminal", ["-e"]),
+        ("ghostty", ["-e"]),
     ]
     for term, flag in candidates:
         if shutil.which(term):
