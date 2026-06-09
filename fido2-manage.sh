@@ -1,6 +1,24 @@
 #!/bin/bash
 
-FIDO2_TOKEN_CMD="/usr/local/bin/fido2-token2"
+# Locate fido2-token2: check next to this script first (dev builds),
+# then fall back to PATH (handles any install prefix).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+FIDO2_TOKEN_CMD=""
+for candidate in \
+    "$SCRIPT_DIR/fido2-token2" \
+    "$SCRIPT_DIR/build/tools/fido2-token2" \
+    "$SCRIPT_DIR/tools/fido2-token2"
+do
+    if [[ -f "$candidate" ]]; then
+        FIDO2_TOKEN_CMD="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$FIDO2_TOKEN_CMD" ]]; then
+    FIDO2_TOKEN_CMD="$(command -v fido2-token2 2>/dev/null)"
+fi
 
 list=false
 info=false
@@ -107,6 +125,11 @@ fi
 
 if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && ! $setMinimumPIN && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $help; then
     show_help
+    exit 1
+fi
+
+if [[ -z "$FIDO2_TOKEN_CMD" ]]; then
+    show_message "fido2-token2 not found. Install it or ensure it is on your PATH." "Error"
     exit 1
 fi
 
