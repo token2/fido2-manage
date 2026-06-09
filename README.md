@@ -97,6 +97,8 @@ For example, the following command should be used to set a PIN on a new device:
 ./fido2-manage.sh -setPIN -device 1
 ``` 
 
+### Security Limitations of Command-Line PIN parameter ###
+Due to limitations of command-line applications, sensitive parameters such as PINs may be exposed to other local users through process inspection mechanisms. Use fido2-manage only on systems where you have exclusive access and do not run it on shared or multi-user environments.
 
 ### Changes ###
 The changes implemented in our fork differ from the original code in the following ways:
