@@ -77,24 +77,24 @@ show_message() {
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        -list) list=true ;;
-        -info) info=true ;;
-        -device) device="$2"; shift ;;
-        -pin) pin="$2"; shift ;;
-        -storage) storage=true ;;
-        -fingerprint) fingerprint=true ;;        
-        -residentKeys) residentKeys=true ;;
-        -domain) domain="$2"; shift ;;
-        -delete) delete=true ;;
-        -credential) credential="$2"; shift ;;
-        -changePIN) changePIN=true ;;
-        -setPIN) setPIN=true ;;
-        -reset) reset=true ;;
-        -uvs) uvs=true ;;
-        -uvd) uvd=true ;;
-        -forcePINchange) forcePINchange=true ;;
-        -setMinimumPIN) setMinimumPIN="$2"; shift ;;
-        -help) help=true ;;
+        -list|--list) list=true ;;
+        -info|--info) info=true ;;
+        -device|--device) device="$2"; shift ;;
+        -pin|--pin) pin="$2"; shift ;;
+        -storage|--storage) storage=true ;;
+        -fingerprint|--fingerprint) fingerprint=true ;;
+        -residentKeys|--residentKeys) residentKeys=true ;;
+        -domain|--domain) domain="$2"; shift ;;
+        -delete|--delete) delete=true ;;
+        -credential|--credential) credential="$2"; shift ;;
+        -changePIN|--changePIN) changePIN=true ;;
+        -setPIN|--setPIN) setPIN=true ;;
+        -reset|--reset) reset=true ;;
+        -uvs|--uvs) uvs=true ;;
+        -uvd|--uvd) uvd=true ;;
+        -forcePINchange|--forcePINchange) forcePINchange=true ;;
+        -setMinimumPIN|--setMinimumPIN) setMinimumPIN="$2"; shift ;;
+        -help|--help) help=true ;;
         *) show_message "Unknown parameter: $1" "Error"; exit 1 ;;
     esac
     shift
