@@ -1,2 +1,11 @@
 # Ignore build/ directory
 build/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Test / coverage artifacts
+.coverage
+.pytest_cache/
+htmlcov/

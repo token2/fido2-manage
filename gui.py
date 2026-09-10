@@ -8,6 +8,33 @@ from tkinter import messagebox, simpledialog, ttk
 import pexpect
 import argparse
 
+
+def parse_resident_line(line):
+    """Parse one wrapper output line of the form:
+        [Info] Credential ID: <id>, User: <name>, Email: <email>, Handle: <user_id>
+    Returns a dict with keys credential_id, user, email, handle, or None if the
+    line is not a credential line. Missing trailing fields default to "".
+    """
+    if "Credential ID: " not in line:
+        return None
+    result = {"credential_id": "", "user": "", "email": "", "handle": ""}
+    mapping = {
+        "Credential ID": "credential_id",
+        "User": "user",
+        "Email": "email",
+        "Handle": "handle",
+    }
+    # Split on ", " but only for the known keys to avoid breaking values.
+    for part in re.split(r",\s+(?=(?:Credential ID|User|Email|Handle):)", line):
+        if ": " not in part:
+            continue
+        key, _, val = part.partition(": ")
+        key = key.replace("[Info] ", "").strip()
+        if key in mapping:
+            result[mapping[key]] = val.strip()
+    return result
+
+
 def detect_terminal():
     candidates = [
         ("gnome-terminal", ["--"]),
@@ -26,10 +53,6 @@ def detect_terminal():
 
 FIDO_COMMAND = "./fido2-manage.sh"
 TERM, TERM_FLAG = detect_terminal()
-
-if TERM is None:
-    messagebox.showerror("Error", "No supported terminal emulator found. Please install xterm or gnome-terminal.")
-    sys.exit(1)
 
 PIN = None
 
@@ -387,39 +410,67 @@ def refresh_combobox():
 
 def show_output_in_new_window(output, device_digit):
     new_window = tk.Toplevel(root)
-    new_window.geometry("800x650")
+    # Ensure rows are tall enough for the (possibly HiDPI-scaled) font so cell
+    # text is not vertically clipped in this window.
+    try:
+        from tkinter import font as _tkfont
+        _line = _tkfont.nametofont("TkDefaultFont").metrics("linespace")
+        ttk.Style().configure("Treeview", rowheight=_line + 8)
+        _scale = max(1.0, _line / 18.0)
+        new_window.geometry(f"{int(800 * _scale)}x{int(650 * _scale)}")
+    except Exception:
+        new_window.geometry("800x650")
     new_window.title("Resident Keys / Passkeys")
 
     tree_new_window = ttk.Treeview(
-        new_window, columns=("Domain", "Credential ID", "User"), show="headings"
+        new_window, columns=("Domain", "Credential ID", "User", "Handle"), show="headings"
     )
-    tree_new_window.heading("Domain", text="Domain")
-    tree_new_window.heading("Credential ID", text="Credential ID")
-    tree_new_window.heading("User", text="User")
-    tree_new_window.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+    tree_new_window.heading("Domain", text="Domain", anchor="w")
+    tree_new_window.heading("Credential ID", text="Credential ID", anchor="w")
+    tree_new_window.heading("User", text="User", anchor="w")
+    tree_new_window.heading("Handle", text="Handle (User ID)", anchor="w")
+    tree_new_window.column("Domain", width=170, minwidth=110, stretch=False, anchor="w")
+    tree_new_window.column("Credential ID", width=280, minwidth=180, stretch=False, anchor="w")
+    tree_new_window.column("User", width=220, minwidth=140, stretch=True, anchor="w")
+    tree_new_window.column("Handle", width=240, minwidth=140, stretch=False, anchor="w")
 
+    # Pack scrollbars first so the tree receives the correct remaining area
+    # (prevents rows being vertically compressed / clipped).
     tree_scrollbar_y = ttk.Scrollbar(
         new_window, orient="vertical", command=tree_new_window.yview
     )
     tree_scrollbar_y.pack(side="right", fill="y")
-    tree_new_window.configure(yscrollcommand=tree_scrollbar_y.set)
     tree_scrollbar_x = ttk.Scrollbar(
         new_window, orient="horizontal", command=tree_new_window.xview
     )
     tree_scrollbar_x.pack(side="bottom", fill="x")
-    tree_new_window.configure(xscrollcommand=tree_scrollbar_x.set)
+    tree_new_window.configure(
+        yscrollcommand=tree_scrollbar_y.set,
+        xscrollcommand=tree_scrollbar_x.set,
+    )
+    tree_new_window.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
 
     current_domain = ""
     for line in output.splitlines():
         if line.startswith("Domain: "):
             current_domain = line.split("Domain: ")[1].strip()
-        elif "Credential ID: " in line and "User: " in line:
-            credential_id = line.split("Credential ID: ")[1].split(",")[0].strip()
-            user = line.split("User: ")[1].strip()
-            user = re.sub(re.escape(credential_id), "", user).strip()
-            tree_new_window.insert(
-                "", tk.END, values=(current_domain, credential_id, user)
-            )
+            continue
+        parsed = parse_resident_line(line)
+        if parsed is None:
+            continue
+        user_display = parsed["user"]
+        if parsed["email"]:
+            user_display = f"{user_display} <{parsed['email']}>".strip()
+        tree_new_window.insert(
+            "",
+            tk.END,
+            values=(
+                current_domain,
+                parsed["credential_id"],
+                user_display,
+                parsed["handle"],
+            ),
+        )
 
     def show_selected_value():
         selected_item = tree_new_window.selection()
@@ -442,7 +493,230 @@ def show_output_in_new_window(output, device_digit):
     show_value_button = tk.Button(
         new_window, text="Delete Passkey", command=show_selected_value
     )
-    show_value_button.pack(pady=10)
+    show_value_button.pack(side=tk.LEFT, padx=10, pady=10)
+
+    def edit_selected_metadata():
+        selected_item = tree_new_window.selection()
+        if not selected_item:
+            messagebox.showinfo("No selection", "Select a passkey to edit.")
+            return
+        row_values = tree_new_window.item(selected_item, "values")
+        cred_id = row_values[1]
+        prefilled_handle = row_values[3] if len(row_values) > 3 else ""
+        user_id = simpledialog.askstring(
+            "Edit metadata",
+            "User ID (base64 user handle) for this credential:",
+            initialvalue=prefilled_handle,
+        )
+        if not user_id:
+            return
+        new_name = simpledialog.askstring("Edit metadata", "New name (e.g. user@example.com):") or ""
+        new_display = simpledialog.askstring("Edit metadata", "New display name:") or ""
+        args = [
+            FIDO_COMMAND, "-editCredential",
+            "-device", device_digit,
+            "-credential", cred_id,
+            "-userId", user_id,
+            "-name", new_name,
+            "-displayName", new_display,
+        ]
+        if PIN:
+            args += ["-pin", PIN]
+        if sys.platform.startswith("linux"):
+            subprocess.Popen([TERM] + TERM_FLAG + args)
+        else:
+            subprocess.run(args)
+
+    edit_button = tk.Button(
+        new_window, text="Edit Metadata", command=edit_selected_metadata
+    )
+    edit_button.pack(side=tk.LEFT, padx=10, pady=10)
+
+def _selected_device_digit():
+    """Return the device number from the combobox selection, or None."""
+    match = re.search(r"\[(\d+)\]", device_var.get())
+    if not match:
+        messagebox.showinfo("No device", "Please select a device first.")
+        return None
+    return match.group(1)
+
+
+def _run_wrapper(args, need_pin=False):
+    """Run fido2-manage.sh with args; optionally prompt for and pass the PIN.
+    Returns CompletedProcess or None if the user cancelled a PIN prompt."""
+    global PIN
+    cmd = [FIDO_COMMAND] + args
+    if need_pin:
+        if PIN is None:
+            get_pin()
+        if PIN is None:
+            return None
+        cmd += ["-pin", PIN]
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def show_stats():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    result = _run_wrapper(["-stats", "-device", device_digit], need_pin=True)
+    if result is None:
+        return
+    win = tk.Toplevel(root)
+    win.title(f"Storage & Statistics - Device {device_digit}")
+    try:
+        from tkinter import font as _tkfont
+        _s = max(1.0, _tkfont.nametofont("TkDefaultFont").metrics("linespace") / 18.0)
+        win.geometry(f"{int(600 * _s)}x{int(500 * _s)}")
+    except Exception:
+        win.geometry("600x500")
+    txt = tk.Text(win, wrap="word")
+    txt.insert("1.0", (result.stdout or "") + (("\n" + result.stderr) if result.stderr else ""))
+    txt.config(state="disabled")
+    txt.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+
+def generate_ssh_key():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+
+    dlg = tk.Toplevel(root)
+    dlg.title("Generate SSH Security-Key")
+    dlg.transient(root)
+
+    ttk.Label(dlg, text="Key type:").grid(row=0, column=0, sticky="w", padx=10, pady=6)
+    type_var = tk.StringVar(value="ed25519-sk")
+    ttk.Combobox(
+        dlg, textvariable=type_var, values=["ed25519-sk", "ecdsa-sk"],
+        state="readonly", width=20,
+    ).grid(row=0, column=1, sticky="w", padx=10, pady=6)
+
+    resident_var = tk.BooleanVar(value=False)
+    ttk.Checkbutton(
+        dlg, text="Resident (store handle on key)", variable=resident_var
+    ).grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=6)
+
+    ttk.Label(dlg, text="Output path:").grid(row=2, column=0, sticky="w", padx=10, pady=6)
+    out_var = tk.StringVar(value=os.path.expanduser("~/.ssh/id_ed25519_sk"))
+    ttk.Entry(dlg, textvariable=out_var, width=40).grid(
+        row=2, column=1, sticky="w", padx=10, pady=6
+    )
+
+    ttk.Label(dlg, text="Application (optional):").grid(
+        row=3, column=0, sticky="w", padx=10, pady=6
+    )
+    app_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=app_var, width=40).grid(
+        row=3, column=1, sticky="w", padx=10, pady=6
+    )
+
+    def do_generate():
+        args = [
+            "-sshKeygen", "-device", device_digit,
+            "-sshType", type_var.get(),
+            "-sshOutput", out_var.get(),
+        ]
+        if resident_var.get():
+            args.append("-sshResident")
+        if app_var.get().strip():
+            args += ["-sshApplication", app_var.get().strip()]
+        dlg.destroy()
+        messagebox.showinfo(
+            "Touch required",
+            "Touch your security key when it blinks to complete key generation.",
+        )
+        # ssh-keygen is interactive (touch); run in a terminal so prompts show.
+        if sys.platform.startswith("linux"):
+            subprocess.Popen([TERM] + TERM_FLAG + [FIDO_COMMAND] + args)
+        else:
+            subprocess.run([FIDO_COMMAND] + args)
+
+    ttk.Button(dlg, text="Generate", command=do_generate).grid(
+        row=4, column=0, columnspan=2, pady=12
+    )
+
+
+def manage_large_blob():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+
+    dlg = tk.Toplevel(root)
+    dlg.title("Large Blob Management")
+    dlg.transient(root)
+
+    ttk.Label(dlg, text="Relying-party ID:").grid(
+        row=0, column=0, sticky="w", padx=10, pady=6
+    )
+    rp_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=rp_var, width=36).grid(
+        row=0, column=1, sticky="w", padx=10, pady=6
+    )
+
+    ttk.Label(dlg, text="Credential ID (if multiple):").grid(
+        row=1, column=0, sticky="w", padx=10, pady=6
+    )
+    cred_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=cred_var, width=36).grid(
+        row=1, column=1, sticky="w", padx=10, pady=6
+    )
+
+    ttk.Label(dlg, text="Blob file:").grid(row=2, column=0, sticky="w", padx=10, pady=6)
+    file_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=file_var, width=36).grid(
+        row=2, column=1, sticky="w", padx=10, pady=6
+    )
+
+    def _base_args():
+        args = ["-device", device_digit, "-rpId", rp_var.get().strip()]
+        if cred_var.get().strip():
+            args += ["-credential", cred_var.get().strip()]
+        return args
+
+    def _require(*fields):
+        for label, val in fields:
+            if not val.strip():
+                messagebox.showerror("Missing", f"{label} is required.")
+                return False
+        return True
+
+    def do_get():
+        if not _require(("Relying-party ID", rp_var.get()), ("Blob file", file_var.get())):
+            return
+        res = _run_wrapper(
+            ["-largeBlobGet"] + _base_args() + ["-blobFile", file_var.get().strip()],
+            need_pin=True,
+        )
+        if res is not None:
+            messagebox.showinfo("Large Blob", (res.stdout or "") + (res.stderr or ""))
+
+    def do_set():
+        if not _require(("Relying-party ID", rp_var.get()), ("Blob file", file_var.get())):
+            return
+        res = _run_wrapper(
+            ["-largeBlobSet"] + _base_args() + ["-blobFile", file_var.get().strip()],
+            need_pin=True,
+        )
+        if res is not None:
+            messagebox.showinfo("Large Blob", (res.stdout or "") + (res.stderr or ""))
+
+    def do_delete():
+        if not _require(("Relying-party ID", rp_var.get())):
+            return
+        if not messagebox.askyesno("Confirm", "Delete the large-blob? This is irreversible."):
+            return
+        args = [FIDO_COMMAND, "-largeBlobDelete"] + _base_args()
+        if PIN:
+            args += ["-pin", PIN]
+        subprocess.Popen([TERM] + TERM_FLAG + args)
+
+    ttk.Button(dlg, text="Get", command=do_get).grid(row=3, column=0, pady=12, padx=6)
+    ttk.Button(dlg, text="Set", command=do_set).grid(row=3, column=1, sticky="w", pady=12)
+    ttk.Button(dlg, text="Delete", command=do_delete).grid(
+        row=4, column=0, columnspan=2, pady=4
+    )
+
 
 def show_about_message():
     messagebox.showinfo(
@@ -451,68 +725,113 @@ def show_about_message():
     )
 
 # parse command-line arguments
-parser = argparse.ArgumentParser(description="FIDO2.1 Manager GUI")
-parser.add_argument("-dpi", action="store_true", help="Set DPI awareness for high-DPI displays")
-args = parser.parse_args()
+def main():
+    global root, device_var, device_combobox, tree
+    global passkeys_button, pin_button
 
-root = tk.Tk()
+    parser = argparse.ArgumentParser(description="FIDO2.1 Manager GUI")
+    parser.add_argument("-dpi", action="store_true", help="Set DPI awareness for high-DPI displays")
+    args = parser.parse_args()
 
-# Set DPI awareness if requested
-if args.dpi:
-    set_dpi_awareness()
+    root = tk.Tk()
 
-root.geometry("700x600")
-root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
+    if TERM is None:
+        messagebox.showerror(
+            "Error",
+            "No supported terminal emulator found. Please install xterm or gnome-terminal.",
+        )
+        sys.exit(1)
 
-top_frame = ttk.Frame(root)
-top_frame.pack(side=tk.TOP, fill=tk.X)
+    # Set DPI awareness if requested
+    if args.dpi:
+        set_dpi_awareness()
 
-label = tk.Label(top_frame, text="Select Device:")
-label.pack(side=tk.LEFT, padx=10, pady=10)
+    # --- HiDPI / Wayland layout fix ---
+    # On a scaled HiDPI panel Tk enlarges the default font (e.g. line height ~37px)
+    # but the ttk.Treeview keeps its default rowheight (~20px), so cell text gets
+    # clipped. Sync the Treeview rowheight (and default column width) to the real
+    # font metrics, and size the window to fit.
+    try:
+        from tkinter import font as _tkfont
+        _f = _tkfont.nametofont("TkDefaultFont")
+        _line = _f.metrics("linespace")            # actual pixel height of a text line
+        _rowheight = _line + 8                      # padding above/below text
+        _style = ttk.Style()
+        _style.configure("Treeview", rowheight=_rowheight)
+        _style.configure("Treeview.Heading", padding=4)
+        # Scale the default window with the font so columns have room.
+        _scale = max(1.0, _line / 18.0)             # 18px ~= line height at 96 DPI
+        _w, _h = int(700 * _scale), int(600 * _scale)
+        root.geometry(f"{_w}x{_h}")
+    except Exception:
+        root.geometry("700x600")
 
-device_list = get_device_list()
-if not device_list:
-    device_list = ["No devices found."]
-device_var = tk.StringVar()
-device_combobox = ttk.Combobox(
-    top_frame, textvariable=device_var, values=device_list, width=60
-)
-device_combobox.pack(side=tk.LEFT, padx=10, pady=10)
-device_combobox.bind("<<ComboboxSelected>>", on_device_selected)
+    root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
 
-refresh_button = tk.Button(top_frame, text="Refresh", command=refresh_combobox)
-refresh_button.pack(side=tk.LEFT, padx=10, pady=10)
+    top_frame = ttk.Frame(root)
+    top_frame.pack(side=tk.TOP, fill=tk.X)
 
-tree_frame = ttk.Frame(root)
-tree_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
-tree_scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical")
-tree_scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal")
-tree = ttk.Treeview(
-    tree_frame,
-    columns=("Key", "Value"),
-    show="headings",
-    yscrollcommand=tree_scrollbar_y.set,
-    xscrollcommand=tree_scrollbar_x.set,
-)
-tree_scrollbar_y.config(command=tree.yview)
-tree_scrollbar_x.config(command=tree.xview)
-tree_scrollbar_y.pack(side="right", fill="y")
-tree_scrollbar_x.pack(side="bottom", fill="x")
-tree.heading("Key", text="Key")
-tree.heading("Value", text="Value")
-tree.pack(expand=True, fill=tk.BOTH)
+    label = tk.Label(top_frame, text="Select Device:")
+    label.pack(side=tk.LEFT, padx=10, pady=10)
 
-passkeys_button = ttk.Button(
-    root, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
-)
-passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
+    device_list = get_device_list()
+    if not device_list:
+        device_list = ["No devices found."]
+    device_var = tk.StringVar()
+    device_combobox = ttk.Combobox(
+        top_frame, textvariable=device_var, values=device_list, width=60
+    )
+    device_combobox.pack(side=tk.LEFT, padx=10, pady=10)
+    device_combobox.bind("<<ComboboxSelected>>", on_device_selected)
 
-pin_button = ttk.Button(
-    root, text="Set PIN", state=tk.DISABLED, command=set_pin
-)
-pin_button.pack(side=tk.LEFT, padx=5, pady=10)
+    refresh_button = tk.Button(top_frame, text="Refresh", command=refresh_combobox)
+    refresh_button.pack(side=tk.LEFT, padx=10, pady=10)
 
-about_button = ttk.Button(root, text="About", command=show_about_message)
-about_button.pack(side=tk.RIGHT, padx=5, pady=10)
+    tree_frame = ttk.Frame(root)
+    tree_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+    tree_scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical")
+    tree_scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal")
+    tree = ttk.Treeview(
+        tree_frame,
+        columns=("Key", "Value"),
+        show="headings",
+        yscrollcommand=tree_scrollbar_y.set,
+        xscrollcommand=tree_scrollbar_x.set,
+    )
+    tree_scrollbar_y.config(command=tree.yview)
+    tree_scrollbar_x.config(command=tree.xview)
+    tree_scrollbar_y.pack(side="right", fill="y")
+    tree_scrollbar_x.pack(side="bottom", fill="x")
+    tree.heading("Key", text="Key", anchor="w")
+    tree.heading("Value", text="Value", anchor="w")
+    tree.column("Key", width=200, minwidth=120, stretch=False, anchor="w")
+    tree.column("Value", width=460, minwidth=200, stretch=True, anchor="w")
+    tree.pack(expand=True, fill=tk.BOTH)
 
-root.mainloop()
+    passkeys_button = ttk.Button(
+        root, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
+    )
+    passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+    pin_button = ttk.Button(
+        root, text="Set PIN", state=tk.DISABLED, command=set_pin
+    )
+    pin_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+    stats_button = ttk.Button(root, text="Stats", command=show_stats)
+    stats_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+    ssh_button = ttk.Button(root, text="SSH Key", command=generate_ssh_key)
+    ssh_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+    blob_button = ttk.Button(root, text="Large Blob", command=manage_large_blob)
+    blob_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+    about_button = ttk.Button(root, text="About", command=show_about_message)
+    about_button.pack(side=tk.RIGHT, padx=5, pady=10)
+
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
