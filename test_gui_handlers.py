@@ -1016,3 +1016,94 @@ def test_luks_enroll_cancelled_run(gui, monkeypatch):
     monkeypatch.setattr(gui, "_run_wrapper", lambda *a, **k: None)
     gui.luks_enroll()
 
+
+# --- minimize-to-tray helpers --------------------------------------------
+def test_hide_to_tray(gui):
+    gui.root = mock.MagicMock()
+    gui.hide_to_tray()
+    gui.root.withdraw.assert_called_once()
+
+
+def test_hide_to_tray_no_root(gui):
+    gui.root = None
+    gui.hide_to_tray()  # no error
+
+
+def test_show_window(gui):
+    gui.root = mock.MagicMock()
+    gui.show_window()
+    gui.root.deiconify.assert_called_once()
+    gui.root.lift.assert_called_once()
+
+
+def test_show_window_no_root(gui):
+    gui.root = None
+    gui.show_window()
+
+
+def test_quit_app(gui):
+    gui.root = mock.MagicMock()
+    gui.quit_app()
+    gui.root.destroy.assert_called_once()
+
+
+def test_quit_app_no_root(gui):
+    gui.root = None
+    gui.quit_app()
+
+
+def test_start_tray_unavailable(gui, monkeypatch):
+    # Force the gi import inside start_tray to fail -> returns None.
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "gi":
+            raise ImportError("no gi")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert gui.start_tray() is None
+
+
+def test_start_tray_success(gui, monkeypatch):
+    gui.root = mock.MagicMock()
+    created = []
+    _gi = types.ModuleType("gi")
+    _gi.require_version = mock.MagicMock()
+    repo = types.ModuleType("gi.repository")
+
+    class _Item:
+        def __init__(self, label=None):
+            self.label = label
+            self._cb = None
+            created.append(self)
+        def connect(self, sig, cb):
+            self._cb = cb
+
+    class _Menu:
+        def __init__(self):
+            self.items = []
+        def append(self, i):
+            self.items.append(i)
+        def show_all(self):
+            pass
+
+    repo.Gtk = types.SimpleNamespace(Menu=_Menu, MenuItem=_Item, main=mock.MagicMock())
+    _ind = mock.MagicMock()
+    repo.AppIndicator3 = types.SimpleNamespace(
+        Indicator=types.SimpleNamespace(new=mock.MagicMock(return_value=_ind)),
+        IndicatorCategory=types.SimpleNamespace(APPLICATION_STATUS=1),
+        IndicatorStatus=types.SimpleNamespace(ACTIVE=1),
+    )
+    _gi.repository = repo
+    monkeypatch.setitem(sys.modules, "gi", _gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repo)
+
+    ind = gui.start_tray()
+    assert ind is _ind
+    # Invoke the Open and Quit menu callbacks -> they schedule via root.after.
+    for it in created:
+        it._cb(None)
+    assert gui.root.after.call_count == 2
+

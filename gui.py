@@ -893,6 +893,57 @@ def luks_enroll():
         )
 
 
+def hide_to_tray():
+    """Hide (withdraw) the main window instead of destroying it, so closing the
+    window minimises to the tray rather than quitting."""
+    if root is not None:
+        root.withdraw()
+
+
+def show_window(*_args):
+    """Re-show the main window from the tray."""
+    if root is not None:
+        root.deiconify()
+        root.lift()
+
+
+def quit_app(*_args):
+    """Actually quit the application (tray 'Quit')."""
+    if root is not None:
+        root.destroy()
+
+
+def start_tray():
+    """Create an in-process AppIndicator tray icon with Open/Quit so the window
+    can minimise to tray. Returns the indicator, or None if AppIndicator is
+    unavailable (in which case closing the window simply quits)."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("AppIndicator3", "0.1")
+        from gi.repository import Gtk, AppIndicator3
+    except (ImportError, ValueError):
+        return None
+
+    indicator = AppIndicator3.Indicator.new(
+        "fido2-manage",
+        "security-high",
+        AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
+    )
+    indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+
+    menu = Gtk.Menu()
+    open_item = Gtk.MenuItem(label="Open")
+    open_item.connect("activate", lambda _w: root.after(0, show_window))
+    menu.append(open_item)
+    quit_item = Gtk.MenuItem(label="Quit")
+    quit_item.connect("activate", lambda _w: root.after(0, quit_app))
+    menu.append(quit_item)
+    menu.show_all()
+    indicator.set_menu(menu)
+    return indicator
+
+
 def show_about_message():
     messagebox.showinfo(
         "About",
@@ -1031,6 +1082,19 @@ def main():
 
     about_button = ttk.Button(root, text="About", command=show_about_message)
     about_button.pack(side=tk.RIGHT, padx=5, pady=10)
+
+    # Minimise-to-tray: closing the window hides it; the tray icon restores it.
+    indicator = start_tray()
+    if indicator is not None:
+        root.protocol("WM_DELETE_WINDOW", hide_to_tray)
+        # AppIndicator needs a GTK main loop; run it on a daemon thread so it
+        # coexists with Tk's mainloop on the main thread.
+        def _gtk_loop():  # pragma: no cover - requires live GTK
+            import gi
+            gi.require_version("Gtk", "3.0")
+            from gi.repository import Gtk
+            Gtk.main()
+        threading.Thread(target=_gtk_loop, daemon=True).start()
 
     root.mainloop()
 
