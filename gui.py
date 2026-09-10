@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import tkinter as tk
 import shutil
 from tkinter import messagebox, simpledialog, ttk
@@ -555,25 +556,51 @@ def _run_wrapper(args, need_pin=False):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def _run_async(args, on_done, need_pin=False):
+    """Run a wrapper command in a background thread so the GUI stays responsive.
+    The PIN prompt (if any) happens on the calling thread; the subprocess runs
+    in a worker thread and ``on_done(result)`` is scheduled back on the Tk main
+    loop via root.after. Returns the started Thread, or None if PIN cancelled.
+    """
+    global PIN
+    if need_pin:
+        if PIN is None:
+            get_pin()
+        if PIN is None:
+            return None
+    run_args = list(args)
+    if need_pin and PIN:
+        run_args += ["-pin", PIN]
+
+    def worker():
+        result = subprocess.run([FIDO_COMMAND] + run_args, capture_output=True, text=True)
+        root.after(0, lambda: on_done(result))
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    return t
+
+
 def show_stats():
     device_digit = _selected_device_digit()
     if device_digit is None:
         return
-    result = _run_wrapper(["-stats", "-device", device_digit], need_pin=True)
-    if result is None:
-        return
-    win = tk.Toplevel(root)
-    win.title(f"Storage & Statistics - Device {device_digit}")
-    try:
-        from tkinter import font as _tkfont
-        _s = max(1.0, _tkfont.nametofont("TkDefaultFont").metrics("linespace") / 18.0)
-        win.geometry(f"{int(600 * _s)}x{int(500 * _s)}")
-    except Exception:
-        win.geometry("600x500")
-    txt = tk.Text(win, wrap="word")
-    txt.insert("1.0", (result.stdout or "") + (("\n" + result.stderr) if result.stderr else ""))
-    txt.config(state="disabled")
-    txt.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+    def _display(result):
+        win = tk.Toplevel(root)
+        win.title(f"Storage & Statistics - Device {device_digit}")
+        try:
+            from tkinter import font as _tkfont
+            _s = max(1.0, _tkfont.nametofont("TkDefaultFont").metrics("linespace") / 18.0)
+            win.geometry(f"{int(600 * _s)}x{int(500 * _s)}")
+        except Exception:
+            win.geometry("600x500")
+        txt = tk.Text(win, wrap="word")
+        txt.insert("1.0", (result.stdout or "") + (("\n" + result.stderr) if result.stderr else ""))
+        txt.config(state="disabled")
+        txt.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+    _run_async(["-stats", "-device", device_digit], _display, need_pin=True)
 
 
 def generate_ssh_key():
@@ -718,6 +745,154 @@ def manage_large_blob():
     )
 
 
+def show_bio_list():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    result = _run_wrapper(["-bioList", "-device", device_digit], need_pin=True)
+    if result is None:
+        return
+    messagebox.showinfo("Biometric enrollments", (result.stdout or "") + (result.stderr or ""))
+
+
+def bio_delete():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    template_id = simpledialog.askstring("Delete biometric", "Template ID to delete:")
+    if not template_id:
+        return
+    args = [FIDO_COMMAND, "-bioDelete", "-device", device_digit, "-templateId", template_id]
+    if PIN:
+        args += ["-pin", PIN]
+    if sys.platform.startswith("linux"):
+        subprocess.Popen([TERM] + TERM_FLAG + args)
+    else:
+        subprocess.run(args)
+
+
+def bio_rename():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    template_id = simpledialog.askstring("Rename biometric", "Template ID:")
+    if not template_id:
+        return
+    new_name = simpledialog.askstring("Rename biometric", "New template name:")
+    if not new_name:
+        return
+    res = _run_wrapper(
+        ["-bioRename", "-device", device_digit, "-templateId", template_id,
+         "-templateName", new_name],
+        need_pin=True,
+    )
+    if res is not None:
+        messagebox.showinfo("Biometric rename", (res.stdout or "") + (res.stderr or ""))
+
+
+def set_pin_min_rps():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    rps = simpledialog.askstring(
+        "Min-PIN RP list", "Comma-separated relying-party IDs allowed to read min PIN length:"
+    )
+    if not rps:
+        return
+    res = _run_wrapper(["-setPinMinRPs", rps, "-device", device_digit], need_pin=True)
+    if res is not None:
+        messagebox.showinfo("Min-PIN RPs", (res.stdout or "") + (res.stderr or ""))
+
+
+def gen_blob_key():
+    path = simpledialog.askstring("Generate blob key", "Output path for the AES-256 base64 key:")
+    if not path:
+        return
+    res = _run_wrapper(["-genBlobKey", path])
+    if res is not None:
+        messagebox.showinfo("Blob key", (res.stdout or "") + (res.stderr or ""))
+
+
+def show_ssh_list():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    result = _run_wrapper(["-sshList", "-device", device_digit], need_pin=True)
+    if result is None:
+        return
+    messagebox.showinfo("SSH resident credentials", (result.stdout or "") + (result.stderr or ""))
+
+
+def ssh_download():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    target = simpledialog.askstring(
+        "Download SSH keys", "Target directory:", initialvalue=os.path.expanduser("~/.ssh")
+    )
+    if not target:
+        return
+    messagebox.showinfo("Touch required", "Touch your security key when it blinks to download resident SSH keys.")
+    args = [FIDO_COMMAND, "-sshDownload", "-device", device_digit, "-sshDir", target]
+    if sys.platform.startswith("linux"):
+        subprocess.Popen([TERM] + TERM_FLAG + args)
+    else:
+        subprocess.run(args)
+
+
+def export_audit():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    fmt = simpledialog.askstring("Audit format", "Format (json or csv):", initialvalue="json")
+    if fmt not in ("json", "csv"):
+        messagebox.showerror("Invalid", "Format must be 'json' or 'csv'.")
+        return
+    out = simpledialog.askstring("Audit output", "Output file path:")
+    if not out:
+        return
+    res = _run_wrapper(
+        ["-audit", "-device", device_digit, "-auditFormat", fmt, "-auditOutput", out],
+        need_pin=True,
+    )
+    if res is not None:
+        messagebox.showinfo("Audit export", (res.stdout or "") + (res.stderr or ""))
+
+
+def age_setup():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    out = simpledialog.askstring(
+        "age setup", "age identity output path:",
+        initialvalue=os.path.expanduser("~/.age/fido2-hmac.txt"),
+    )
+    if not out:
+        return
+    messagebox.showinfo("Touch required", "Touch your security key when prompted to create the age identity.")
+    args = [FIDO_COMMAND, "-ageSetup", "-device", device_digit, "-ageOutput", out]
+    if sys.platform.startswith("linux"):
+        subprocess.Popen([TERM] + TERM_FLAG + args)
+    else:
+        subprocess.run(args)
+
+
+def luks_enroll():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    dev = simpledialog.askstring("LUKS enroll", "Block device (e.g. /dev/sda2):")
+    if not dev:
+        return
+    res = _run_wrapper(["-luksEnroll", "-device", device_digit, "-luksDevice", dev])
+    if res is not None:
+        messagebox.showwarning(
+            "LUKS enrollment (manual)",
+            "This high-risk command is NOT run automatically. Review and run it "
+            "yourself:\n\n" + (res.stdout or "") + (res.stderr or ""),
+        )
+
+
 def show_about_message():
     messagebox.showinfo(
         "About",
@@ -808,24 +983,51 @@ def main():
     tree.column("Value", width=460, minwidth=200, stretch=True, anchor="w")
     tree.pack(expand=True, fill=tk.BOTH)
 
+    # --- Tabbed action panel (ttk.Notebook) ---
+    notebook = ttk.Notebook(root)
+    notebook.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
+
+    def _tab(title):
+        f = ttk.Frame(notebook)
+        notebook.add(f, text=title)
+        return f
+
+    # Credentials tab
+    creds_tab = _tab("Credentials")
     passkeys_button = ttk.Button(
-        root, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
+        creds_tab, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
     )
-    passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
+    passkeys_button.pack(side=tk.LEFT, padx=5, pady=8)
 
-    pin_button = ttk.Button(
-        root, text="Set PIN", state=tk.DISABLED, command=set_pin
-    )
-    pin_button.pack(side=tk.LEFT, padx=5, pady=10)
+    # PIN & Device tab
+    pin_tab = _tab("PIN & Device")
+    pin_button = ttk.Button(pin_tab, text="Set PIN", state=tk.DISABLED, command=set_pin)
+    pin_button.pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(pin_tab, text="Stats", command=show_stats).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(pin_tab, text="Min-PIN RPs", command=set_pin_min_rps).pack(side=tk.LEFT, padx=5, pady=8)
 
-    stats_button = ttk.Button(root, text="Stats", command=show_stats)
-    stats_button.pack(side=tk.LEFT, padx=5, pady=10)
+    # SSH tab
+    ssh_tab = _tab("SSH")
+    ttk.Button(ssh_tab, text="Generate Key", command=generate_ssh_key).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(ssh_tab, text="List Resident", command=show_ssh_list).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(ssh_tab, text="Download", command=ssh_download).pack(side=tk.LEFT, padx=5, pady=8)
 
-    ssh_button = ttk.Button(root, text="SSH Key", command=generate_ssh_key)
-    ssh_button.pack(side=tk.LEFT, padx=5, pady=10)
+    # Blobs tab
+    blob_tab = _tab("Blobs")
+    ttk.Button(blob_tab, text="Large Blob", command=manage_large_blob).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(blob_tab, text="Generate Blob Key", command=gen_blob_key).pack(side=tk.LEFT, padx=5, pady=8)
 
-    blob_button = ttk.Button(root, text="Large Blob", command=manage_large_blob)
-    blob_button.pack(side=tk.LEFT, padx=5, pady=10)
+    # Biometrics tab
+    bio_tab = _tab("Biometrics")
+    ttk.Button(bio_tab, text="List", command=show_bio_list).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(bio_tab, text="Rename", command=bio_rename).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(bio_tab, text="Delete", command=bio_delete).pack(side=tk.LEFT, padx=5, pady=8)
+
+    # Audit & Encryption tab
+    audit_tab = _tab("Audit & Encryption")
+    ttk.Button(audit_tab, text="Export Audit", command=export_audit).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(audit_tab, text="age Setup", command=age_setup).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(audit_tab, text="LUKS Enroll", command=luks_enroll).pack(side=tk.LEFT, padx=5, pady=8)
 
     about_button = ttk.Button(root, text="About", command=show_about_message)
     about_button.pack(side=tk.RIGHT, padx=5, pady=10)
