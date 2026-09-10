@@ -8,6 +8,33 @@ from tkinter import messagebox, simpledialog, ttk
 import pexpect
 import argparse
 
+
+def parse_resident_line(line):
+    """Parse one wrapper output line of the form:
+        [Info] Credential ID: <id>, User: <name>, Email: <email>, Handle: <user_id>
+    Returns a dict with keys credential_id, user, email, handle, or None if the
+    line is not a credential line. Missing trailing fields default to "".
+    """
+    if "Credential ID: " not in line:
+        return None
+    result = {"credential_id": "", "user": "", "email": "", "handle": ""}
+    mapping = {
+        "Credential ID": "credential_id",
+        "User": "user",
+        "Email": "email",
+        "Handle": "handle",
+    }
+    # Split on ", " but only for the known keys to avoid breaking values.
+    for part in re.split(r",\s+(?=(?:Credential ID|User|Email|Handle):)", line):
+        if ": " not in part:
+            continue
+        key, _, val = part.partition(": ")
+        key = key.replace("[Info] ", "").strip()
+        if key in mapping:
+            result[mapping[key]] = val.strip()
+    return result
+
+
 def detect_terminal():
     candidates = [
         ("gnome-terminal", ["--"]),
@@ -26,10 +53,6 @@ def detect_terminal():
 
 FIDO_COMMAND = "./fido2-manage.sh"
 TERM, TERM_FLAG = detect_terminal()
-
-if TERM is None:
-    messagebox.showerror("Error", "No supported terminal emulator found. Please install xterm or gnome-terminal.")
-    sys.exit(1)
 
 PIN = None
 
@@ -400,14 +423,16 @@ def show_output_in_new_window(output, device_digit):
     new_window.title("Resident Keys / Passkeys")
 
     tree_new_window = ttk.Treeview(
-        new_window, columns=("Domain", "Credential ID", "User"), show="headings"
+        new_window, columns=("Domain", "Credential ID", "User", "Handle"), show="headings"
     )
     tree_new_window.heading("Domain", text="Domain", anchor="w")
     tree_new_window.heading("Credential ID", text="Credential ID", anchor="w")
     tree_new_window.heading("User", text="User", anchor="w")
-    tree_new_window.column("Domain", width=200, minwidth=120, stretch=False, anchor="w")
-    tree_new_window.column("Credential ID", width=340, minwidth=200, stretch=False, anchor="w")
-    tree_new_window.column("User", width=260, minwidth=160, stretch=True, anchor="w")
+    tree_new_window.heading("Handle", text="Handle (User ID)", anchor="w")
+    tree_new_window.column("Domain", width=170, minwidth=110, stretch=False, anchor="w")
+    tree_new_window.column("Credential ID", width=280, minwidth=180, stretch=False, anchor="w")
+    tree_new_window.column("User", width=220, minwidth=140, stretch=True, anchor="w")
+    tree_new_window.column("Handle", width=240, minwidth=140, stretch=False, anchor="w")
 
     # Pack scrollbars first so the tree receives the correct remaining area
     # (prevents rows being vertically compressed / clipped).
@@ -429,13 +454,23 @@ def show_output_in_new_window(output, device_digit):
     for line in output.splitlines():
         if line.startswith("Domain: "):
             current_domain = line.split("Domain: ")[1].strip()
-        elif "Credential ID: " in line and "User: " in line:
-            credential_id = line.split("Credential ID: ")[1].split(",")[0].strip()
-            user = line.split("User: ")[1].strip()
-            user = re.sub(re.escape(credential_id), "", user).strip()
-            tree_new_window.insert(
-                "", tk.END, values=(current_domain, credential_id, user)
-            )
+            continue
+        parsed = parse_resident_line(line)
+        if parsed is None:
+            continue
+        user_display = parsed["user"]
+        if parsed["email"]:
+            user_display = f"{user_display} <{parsed['email']}>".strip()
+        tree_new_window.insert(
+            "",
+            tk.END,
+            values=(
+                current_domain,
+                parsed["credential_id"],
+                user_display,
+                parsed["handle"],
+            ),
+        )
 
     def show_selected_value():
         selected_item = tree_new_window.selection()
@@ -465,10 +500,13 @@ def show_output_in_new_window(output, device_digit):
         if not selected_item:
             messagebox.showinfo("No selection", "Select a passkey to edit.")
             return
-        cred_id = tree_new_window.item(selected_item, "values")[1]
+        row_values = tree_new_window.item(selected_item, "values")
+        cred_id = row_values[1]
+        prefilled_handle = row_values[3] if len(row_values) > 3 else ""
         user_id = simpledialog.askstring(
             "Edit metadata",
             "User ID (base64 user handle) for this credential:",
+            initialvalue=prefilled_handle,
         )
         if not user_id:
             return
@@ -687,98 +725,113 @@ def show_about_message():
     )
 
 # parse command-line arguments
-parser = argparse.ArgumentParser(description="FIDO2.1 Manager GUI")
-parser.add_argument("-dpi", action="store_true", help="Set DPI awareness for high-DPI displays")
-args = parser.parse_args()
+def main():
+    global root, device_var, device_combobox, tree
+    global passkeys_button, pin_button
 
-root = tk.Tk()
+    parser = argparse.ArgumentParser(description="FIDO2.1 Manager GUI")
+    parser.add_argument("-dpi", action="store_true", help="Set DPI awareness for high-DPI displays")
+    args = parser.parse_args()
 
-# Set DPI awareness if requested
-if args.dpi:
-    set_dpi_awareness()
+    root = tk.Tk()
 
-# --- HiDPI / Wayland layout fix ---
-# On a scaled HiDPI panel Tk enlarges the default font (e.g. line height ~37px)
-# but the ttk.Treeview keeps its default rowheight (~20px), so cell text gets
-# clipped. Sync the Treeview rowheight (and default column width) to the real
-# font metrics, and size the window to fit.
-try:
-    from tkinter import font as _tkfont
-    _f = _tkfont.nametofont("TkDefaultFont")
-    _line = _f.metrics("linespace")            # actual pixel height of a text line
-    _rowheight = _line + 8                      # padding above/below text
-    _style = ttk.Style()
-    _style.configure("Treeview", rowheight=_rowheight)
-    _style.configure("Treeview.Heading", padding=4)
-    # Scale the default window with the font so columns have room.
-    _scale = max(1.0, _line / 18.0)             # 18px ~= line height at 96 DPI
-    _w, _h = int(700 * _scale), int(600 * _scale)
-    root.geometry(f"{_w}x{_h}")
-except Exception:
-    root.geometry("700x600")
+    if TERM is None:
+        messagebox.showerror(
+            "Error",
+            "No supported terminal emulator found. Please install xterm or gnome-terminal.",
+        )
+        sys.exit(1)
 
-root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
+    # Set DPI awareness if requested
+    if args.dpi:
+        set_dpi_awareness()
 
-top_frame = ttk.Frame(root)
-top_frame.pack(side=tk.TOP, fill=tk.X)
+    # --- HiDPI / Wayland layout fix ---
+    # On a scaled HiDPI panel Tk enlarges the default font (e.g. line height ~37px)
+    # but the ttk.Treeview keeps its default rowheight (~20px), so cell text gets
+    # clipped. Sync the Treeview rowheight (and default column width) to the real
+    # font metrics, and size the window to fit.
+    try:
+        from tkinter import font as _tkfont
+        _f = _tkfont.nametofont("TkDefaultFont")
+        _line = _f.metrics("linespace")            # actual pixel height of a text line
+        _rowheight = _line + 8                      # padding above/below text
+        _style = ttk.Style()
+        _style.configure("Treeview", rowheight=_rowheight)
+        _style.configure("Treeview.Heading", padding=4)
+        # Scale the default window with the font so columns have room.
+        _scale = max(1.0, _line / 18.0)             # 18px ~= line height at 96 DPI
+        _w, _h = int(700 * _scale), int(600 * _scale)
+        root.geometry(f"{_w}x{_h}")
+    except Exception:
+        root.geometry("700x600")
 
-label = tk.Label(top_frame, text="Select Device:")
-label.pack(side=tk.LEFT, padx=10, pady=10)
+    root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
 
-device_list = get_device_list()
-if not device_list:
-    device_list = ["No devices found."]
-device_var = tk.StringVar()
-device_combobox = ttk.Combobox(
-    top_frame, textvariable=device_var, values=device_list, width=60
-)
-device_combobox.pack(side=tk.LEFT, padx=10, pady=10)
-device_combobox.bind("<<ComboboxSelected>>", on_device_selected)
+    top_frame = ttk.Frame(root)
+    top_frame.pack(side=tk.TOP, fill=tk.X)
 
-refresh_button = tk.Button(top_frame, text="Refresh", command=refresh_combobox)
-refresh_button.pack(side=tk.LEFT, padx=10, pady=10)
+    label = tk.Label(top_frame, text="Select Device:")
+    label.pack(side=tk.LEFT, padx=10, pady=10)
 
-tree_frame = ttk.Frame(root)
-tree_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
-tree_scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical")
-tree_scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal")
-tree = ttk.Treeview(
-    tree_frame,
-    columns=("Key", "Value"),
-    show="headings",
-    yscrollcommand=tree_scrollbar_y.set,
-    xscrollcommand=tree_scrollbar_x.set,
-)
-tree_scrollbar_y.config(command=tree.yview)
-tree_scrollbar_x.config(command=tree.xview)
-tree_scrollbar_y.pack(side="right", fill="y")
-tree_scrollbar_x.pack(side="bottom", fill="x")
-tree.heading("Key", text="Key", anchor="w")
-tree.heading("Value", text="Value", anchor="w")
-tree.column("Key", width=200, minwidth=120, stretch=False, anchor="w")
-tree.column("Value", width=460, minwidth=200, stretch=True, anchor="w")
-tree.pack(expand=True, fill=tk.BOTH)
+    device_list = get_device_list()
+    if not device_list:
+        device_list = ["No devices found."]
+    device_var = tk.StringVar()
+    device_combobox = ttk.Combobox(
+        top_frame, textvariable=device_var, values=device_list, width=60
+    )
+    device_combobox.pack(side=tk.LEFT, padx=10, pady=10)
+    device_combobox.bind("<<ComboboxSelected>>", on_device_selected)
 
-passkeys_button = ttk.Button(
-    root, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
-)
-passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
+    refresh_button = tk.Button(top_frame, text="Refresh", command=refresh_combobox)
+    refresh_button.pack(side=tk.LEFT, padx=10, pady=10)
 
-pin_button = ttk.Button(
-    root, text="Set PIN", state=tk.DISABLED, command=set_pin
-)
-pin_button.pack(side=tk.LEFT, padx=5, pady=10)
+    tree_frame = ttk.Frame(root)
+    tree_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+    tree_scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical")
+    tree_scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal")
+    tree = ttk.Treeview(
+        tree_frame,
+        columns=("Key", "Value"),
+        show="headings",
+        yscrollcommand=tree_scrollbar_y.set,
+        xscrollcommand=tree_scrollbar_x.set,
+    )
+    tree_scrollbar_y.config(command=tree.yview)
+    tree_scrollbar_x.config(command=tree.xview)
+    tree_scrollbar_y.pack(side="right", fill="y")
+    tree_scrollbar_x.pack(side="bottom", fill="x")
+    tree.heading("Key", text="Key", anchor="w")
+    tree.heading("Value", text="Value", anchor="w")
+    tree.column("Key", width=200, minwidth=120, stretch=False, anchor="w")
+    tree.column("Value", width=460, minwidth=200, stretch=True, anchor="w")
+    tree.pack(expand=True, fill=tk.BOTH)
 
-stats_button = ttk.Button(root, text="Stats", command=show_stats)
-stats_button.pack(side=tk.LEFT, padx=5, pady=10)
+    passkeys_button = ttk.Button(
+        root, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
+    )
+    passkeys_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-ssh_button = ttk.Button(root, text="SSH Key", command=generate_ssh_key)
-ssh_button.pack(side=tk.LEFT, padx=5, pady=10)
+    pin_button = ttk.Button(
+        root, text="Set PIN", state=tk.DISABLED, command=set_pin
+    )
+    pin_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-blob_button = ttk.Button(root, text="Large Blob", command=manage_large_blob)
-blob_button.pack(side=tk.LEFT, padx=5, pady=10)
+    stats_button = ttk.Button(root, text="Stats", command=show_stats)
+    stats_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-about_button = ttk.Button(root, text="About", command=show_about_message)
-about_button.pack(side=tk.RIGHT, padx=5, pady=10)
+    ssh_button = ttk.Button(root, text="SSH Key", command=generate_ssh_key)
+    ssh_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-root.mainloop()
+    blob_button = ttk.Button(root, text="Large Blob", command=manage_large_blob)
+    blob_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+    about_button = ttk.Button(root, text="About", command=show_about_message)
+    about_button.pack(side=tk.RIGHT, padx=5, pady=10)
+
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

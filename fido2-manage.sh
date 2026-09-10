@@ -296,25 +296,37 @@ if [[ -n $device ]]; then
             domain_command="$FIDO2_TOKEN_CMD -L -k \"$domain\" \"$device_string\" $([[ -n $pin ]] && echo "-w $pin")"
             domain_output=$(eval $domain_command)
 
+            # Line format from fido2-token -L -k:
+            #   NN: <cred_id> <display name...> <email> <user_id_b64> <alg> <uv>
+            # The last three tokens are always user_id, algorithm and uv policy;
+            # the email is the token immediately before user_id; the credential
+            # id is the token after "NN:"; everything in between is the (multi
+            # word) display name.
             echo "$domain_output" | while read -r line; do
-                key_id=$(echo "$line" | awk '{print $1}')
-                credential_id=$(echo "$line" | awk '{print $2}')
-                user_field=$(echo "$line" | awk '{print $3 , $4}')
-                email_field=$(echo "$line" | awk '{print $5, $6}')
-
-                if [[ "$user_field" == "(null)" ]]; then
-                    user_field=""
+                [[ -z "$line" ]] && continue
+                # strip leading "NN:" index label
+                rest=${line#*: }
+                # shellcheck disable=SC2206
+                fields=($rest)
+                n=${#fields[@]}
+                if (( n < 5 )); then
+                    show_message "Credential ID: $rest, User: , Email: , Handle: "
+                    continue
                 fi
-
-                if [[ "$user_field" == *"@"* ]]; then
-                    email=$user_field
-                    user=""
-                else
-                    user=$user_field
-                    email=$email_field
-                fi
-
-                show_message "Credential ID: $credential_id, User: $user $email"
+                credential_id=${fields[0]}
+                uv=${fields[n-1]}
+                alg=${fields[n-2]}
+                user_id=${fields[n-3]}
+                email=${fields[n-4]}
+                # display name = tokens 1 .. n-5 (inclusive)
+                user=""
+                for (( i=1; i<=n-5; i++ )); do
+                    user+="${fields[i]} "
+                done
+                user=${user% }
+                [[ "$user" == "(null)" ]] && user=""
+                [[ "$email" == "(null)" ]] && email=""
+                show_message "Credential ID: $credential_id, User: $user, Email: $email, Handle: $user_id"
             done
         else
             $FIDO2_TOKEN_CMD -L -r "$device_string" $(if [[ -n $pin ]]; then echo "-w $pin"; fi)
