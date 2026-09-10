@@ -57,6 +57,130 @@ TERM, TERM_FLAG = detect_terminal()
 
 PIN = None
 
+
+# ---------------------------------------------------------------------------
+# System theme adaptation
+# ---------------------------------------------------------------------------
+# Map GNOME accent-color names to hex values used for our accent styling.
+_ACCENT_HEX = {
+    "blue": "#3584e4",
+    "teal": "#2190a4",
+    "green": "#3a944a",
+    "yellow": "#c88800",
+    "orange": "#ed5b00",
+    "red": "#e62d42",
+    "pink": "#d56199",
+    "purple": "#9141ac",
+    "slate": "#6f8396",
+}
+
+
+def _gsettings(schema, key):
+    """Return a gsettings value (stripped of quotes) or None on any failure."""
+    try:
+        out = subprocess.run(
+            ["gsettings", "get", schema, key],
+            capture_output=True, text=True, timeout=3,
+        )
+        if out.returncode != 0:
+            return None
+        return out.stdout.strip().strip("'\"") or None
+    except Exception:
+        return None
+
+
+def detect_color_scheme():
+    """Return 'dark' or 'light' based on the GNOME color-scheme preference.
+    Falls back to 'light' if it cannot be determined."""
+    scheme = _gsettings("org.gnome.desktop.interface", "color-scheme")
+    if scheme and "dark" in scheme.lower():
+        return "dark"
+    return "light"
+
+
+def detect_accent_color():
+    """Return a hex accent color from the GNOME accent-color preference,
+    defaulting to a neutral blue when unavailable/unknown."""
+    name = _gsettings("org.gnome.desktop.interface", "accent-color")
+    if name:
+        return _ACCENT_HEX.get(name.lower(), "#3584e4")
+    return "#3584e4"
+
+
+def build_palette(scheme, accent):
+    """Build a color palette dict for the given scheme ('dark'/'light') and
+    accent hex. Kept pure (no Tk) so it is easy to unit-test."""
+    if scheme == "dark":
+        base = {
+            "bg": "#1e1e2e",
+            "surface": "#282839",
+            "surface_alt": "#313145",
+            "fg": "#e6e6ef",
+            "fg_muted": "#a6a6c0",
+            "border": "#3a3a52",
+            "selection": accent,
+            "selection_fg": "#ffffff",
+        }
+    else:
+        base = {
+            "bg": "#f6f6fb",
+            "surface": "#ffffff",
+            "surface_alt": "#eef0f6",
+            "fg": "#1b1b28",
+            "fg_muted": "#5a5a70",
+            "border": "#d0d3e0",
+            "selection": accent,
+            "selection_fg": "#ffffff",
+        }
+    base["accent"] = accent
+    return base
+
+
+def apply_theme(style, palette):
+    """Apply the palette to a ttk.Style (clam base). Returns the palette for
+    convenience. Configures the common widget classes used by the app."""
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+    bg, surface, surface_alt = palette["bg"], palette["surface"], palette["surface_alt"]
+    fg, fg_muted, border = palette["fg"], palette["fg_muted"], palette["border"]
+    accent, sel_fg = palette["accent"], palette["selection_fg"]
+
+    style.configure(".", background=bg, foreground=fg, fieldbackground=surface,
+                    bordercolor=border, focuscolor=accent)
+    style.configure("TFrame", background=bg)
+    style.configure("TLabel", background=bg, foreground=fg)
+    style.configure("Header.TLabel", background=bg, foreground=fg,
+                    font=("", 13, "bold"))
+    style.configure("Status.TLabel", background=surface_alt, foreground=fg_muted)
+    style.configure("TButton", background=surface, foreground=fg,
+                    bordercolor=border, focusthickness=1, padding=6)
+    style.map("TButton",
+              background=[("active", surface_alt), ("pressed", accent)],
+              foreground=[("pressed", sel_fg)])
+    style.configure("Accent.TButton", background=accent, foreground=sel_fg,
+                    padding=6)
+    style.map("Accent.TButton", background=[("active", accent), ("pressed", accent)])
+    style.configure("TEntry", fieldbackground=surface, foreground=fg,
+                    bordercolor=border, insertcolor=fg)
+    style.configure("TCombobox", fieldbackground=surface, foreground=fg,
+                    background=surface, bordercolor=border)
+    style.configure("Treeview", background=surface, fieldbackground=surface,
+                    foreground=fg, bordercolor=border)
+    style.map("Treeview", background=[("selected", accent)],
+              foreground=[("selected", sel_fg)])
+    style.configure("Treeview.Heading", background=surface_alt, foreground=fg,
+                    padding=4, relief="flat")
+    style.configure("TNotebook", background=bg, bordercolor=border)
+    style.configure("TNotebook.Tab", background=surface, foreground=fg_muted,
+                    padding=(12, 6))
+    style.map("TNotebook.Tab",
+              background=[("selected", surface_alt)],
+              foreground=[("selected", fg)])
+    return palette
+
+
 def set_dpi_awareness():
     
     # Set rowheight based on screen DPI and size
@@ -491,9 +615,7 @@ def show_output_in_new_window(output, device_digit):
             elif sys.platform.startswith("linux"):
                 subprocess.Popen([TERM] + TERM_FLAG + command)
 
-    show_value_button = tk.Button(
-        new_window, text="Delete Passkey", command=show_selected_value
-    )
+    show_value_button = ttk.Button(new_window, text="Delete Passkey", command=show_selected_value)
     show_value_button.pack(side=tk.LEFT, padx=10, pady=10)
 
     def edit_selected_metadata():
@@ -528,9 +650,7 @@ def show_output_in_new_window(output, device_digit):
         else:
             subprocess.run(args)
 
-    edit_button = tk.Button(
-        new_window, text="Edit Metadata", command=edit_selected_metadata
-    )
+    edit_button = ttk.Button(new_window, text="Edit Metadata", command=edit_selected_metadata)
     edit_button.pack(side=tk.LEFT, padx=10, pady=10)
 
 def _selected_device_digit():
@@ -1033,12 +1153,27 @@ def main():
     except Exception:
         root.geometry("700x600")
 
-    root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
+    root.title("FIDO2.1 Security Key Manager")
+
+    # --- Modern theme: adapt to the system light/dark + accent ---
+    try:
+        _palette = build_palette(detect_color_scheme(), detect_accent_color())
+        apply_theme(ttk.Style(), _palette)
+        root.configure(background=_palette["bg"])
+        root.minsize(560, 480)
+    except Exception:
+        pass
+
+    # Header
+    header = ttk.Frame(root)
+    header.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(12, 4))
+    ttk.Label(header, text="FIDO2.1 Security Key Manager",
+              style="Header.TLabel").pack(side=tk.LEFT)
 
     top_frame = ttk.Frame(root)
     top_frame.pack(side=tk.TOP, fill=tk.X)
 
-    label = tk.Label(top_frame, text="Select Device:")
+    label = ttk.Label(top_frame, text="Select Device:")
     label.pack(side=tk.LEFT, padx=10, pady=10)
 
     device_list = get_device_list()
@@ -1051,7 +1186,7 @@ def main():
     device_combobox.pack(side=tk.LEFT, padx=10, pady=10)
     device_combobox.bind("<<ComboboxSelected>>", on_device_selected)
 
-    refresh_button = tk.Button(top_frame, text="Refresh", command=refresh_combobox)
+    refresh_button = ttk.Button(top_frame, text="Refresh", command=refresh_combobox)
     refresh_button.pack(side=tk.LEFT, padx=10, pady=10)
 
     tree_frame = ttk.Frame(root)
@@ -1087,7 +1222,8 @@ def main():
     # Credentials tab
     creds_tab = _tab("Credentials")
     passkeys_button = ttk.Button(
-        creds_tab, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click
+        creds_tab, text="Passkeys", state=tk.DISABLED, command=on_passkeys_button_click,
+        style="Accent.TButton",
     )
     passkeys_button.pack(side=tk.LEFT, padx=5, pady=8)
 
@@ -1128,6 +1264,14 @@ def main():
 
     version_button = ttk.Button(root, text="Version", command=show_version)
     version_button.pack(side=tk.RIGHT, padx=5, pady=10)
+
+    # Status bar
+    status = ttk.Label(
+        root,
+        text="Ready — select a device to begin.",
+        style="Status.TLabel", anchor="w", padding=(10, 4),
+    )
+    status.pack(side=tk.BOTTOM, fill=tk.X)
 
     # Minimise-to-tray: closing the window hides it; the tray icon restores it.
     indicator = start_tray()
