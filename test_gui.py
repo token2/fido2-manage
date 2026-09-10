@@ -22,7 +22,7 @@ def _install_fake_tk(monkeypatch, terminal=("gnome-terminal", ["--"])):
 
     ttk = types.ModuleType("tkinter.ttk")
     for name in ("Frame", "Combobox", "Treeview", "Scrollbar", "Button",
-                 "Label", "Checkbutton", "Style", "Entry"):
+                 "Label", "Checkbutton", "Style", "Entry", "Notebook"):
         setattr(ttk, name, mock.MagicMock(name=name))
     tk.ttk = ttk
 
