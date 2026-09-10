@@ -42,13 +42,67 @@ def test_gui_launch_command(tray):
     assert cmd[1].endswith("gui.py")
 
 
-def test_launch_gui_uses_popen(tray):
+def test_launch_gui_uses_popen(tray, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
     fake = mock.MagicMock()
-    tray.launch_gui(popen=fake)
+    tray._last_launch_ts = 0.0
+    tray._gui_process = None
+    tray.launch_gui(popen=fake, clock=lambda: 100.0)
     fake.assert_called_once()
     args, kwargs = fake.call_args
     assert args[0][1].endswith("gui.py")
     assert kwargs["cwd"] == tray.SCRIPT_DIR
+
+
+def test_launch_gui_no_display(tray, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    fake = mock.MagicMock()
+    tray._last_launch_ts = 0.0
+    tray._gui_process = None
+    assert tray.launch_gui(popen=fake, clock=lambda: 100.0) is None
+    fake.assert_not_called()
+
+
+def test_launch_gui_debounced(tray, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    fake = mock.MagicMock()
+    tray._last_launch_ts = 99.0     # last launch 1s ago (< debounce window)
+    tray._gui_process = None
+    assert tray.launch_gui(popen=fake, clock=lambda: 100.0) is None
+    fake.assert_not_called()
+
+
+def test_launch_gui_single_instance(tray, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    alive = mock.MagicMock()
+    alive.poll.return_value = None   # still running
+    tray._last_launch_ts = 0.0
+    tray._gui_process = alive
+    fake = mock.MagicMock()
+    assert tray.launch_gui(popen=fake, clock=lambda: 100.0) is None
+    fake.assert_not_called()
+
+
+def test_launch_gui_after_previous_exited(tray, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    dead = mock.MagicMock()
+    dead.poll.return_value = 0       # previous GUI exited
+    tray._last_launch_ts = 0.0
+    tray._gui_process = dead
+    fake = mock.MagicMock()
+    tray.launch_gui(popen=fake, clock=lambda: 100.0)
+    fake.assert_called_once()
+
+
+def test_display_available(tray, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert tray._display_available() is True
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert tray._display_available() is True
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    assert tray._display_available() is False
 
 
 # --- _extract_vendor_id --------------------------------------------------
