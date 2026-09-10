@@ -15,7 +15,7 @@ def _install_fake_tk(monkeypatch, terminal=("gnome-terminal", ["--"])):
     tk = types.ModuleType("tkinter")
     for name in ("Tk", "Toplevel", "Label", "Button", "Text", "StringVar", "BooleanVar"):
         setattr(tk, name, mock.MagicMock(name=name))
-    tk.END = "end"; tk.BOTH = "both"; tk.TOP = "top"; tk.LEFT = "left"
+    tk.END = "end"; tk.BOTH = "both"; tk.TOP = "top"; tk.LEFT = "left"; tk.BOTTOM = "bottom"
     tk.RIGHT = "right"; tk.X = "x"; tk.NORMAL = "normal"
     tk.DISABLED = "disabled"; tk.ACTIVE = "active"
 
@@ -237,7 +237,7 @@ def test_show_output_window(gui, monkeypatch):
     out = "Domain: mercury.com\nCredential ID: CRED, User: U, Email: e@x.y, Handle: HANDLE\n"
     gui.show_output_in_new_window(out, "1")
     # Retrieve the inner callbacks passed to the two Buttons and run them.
-    btn_calls = [c for c in gui.tk.Button.call_args_list]
+    btn_calls = [c for c in (gui.tk.Button.call_args_list + gui.ttk.Button.call_args_list)]
     for c in btn_calls:
         cmd = c.kwargs.get("command")
         if cmd:
@@ -250,7 +250,7 @@ def test_show_output_window_edit_no_selection(gui, monkeypatch):
     tree.selection.return_value = []
     monkeypatch.setattr(gui.ttk, "Treeview", mock.MagicMock(return_value=tree))
     gui.show_output_in_new_window("Domain: x\n", "1")
-    for c in gui.tk.Button.call_args_list:
+    for c in (gui.tk.Button.call_args_list + gui.ttk.Button.call_args_list):
         cmd = c.kwargs.get("command")
         if cmd:
             cmd()
@@ -264,7 +264,7 @@ def test_show_output_window_edit_cancel_userid(gui, monkeypatch):
     monkeypatch.setattr(gui.subprocess, "Popen", mock.MagicMock())
     gui.simpledialog.askstring.return_value = None  # user cancels
     gui.show_output_in_new_window("Domain: x\n", "1")
-    for c in gui.tk.Button.call_args_list:
+    for c in (gui.tk.Button.call_args_list + gui.ttk.Button.call_args_list):
         cmd = c.kwargs.get("command")
         if cmd:
             cmd()
@@ -610,6 +610,14 @@ def test_main_font_exception(gui, monkeypatch):
     gui.main()
 
 
+def test_main_theme_exception(gui, monkeypatch):
+    monkeypatch.setattr(gui, "get_device_list", lambda: ["Device [1] : K"])
+    monkeypatch.setattr(gui.sys, "argv", ["gui.py"])
+    # Force the theme block to raise -> exercises the except: pass fallback.
+    monkeypatch.setattr(gui, "build_palette", mock.MagicMock(side_effect=RuntimeError))
+    gui.main()
+
+
 # --- remaining branch coverage ------------------------------------------
 def test_parse_part_without_colon(gui):
     # "prefix-no-colon" splits off before "Credential ID:" and has no ": ",
@@ -687,7 +695,7 @@ def test_show_output_delete_windows(gui, monkeypatch):
     monkeypatch.setattr(gui.sys, "platform", "win32")
     gui.simpledialog.askstring.return_value = None  # edit cancels; delete uses Popen
     gui.show_output_in_new_window("Domain: x\n", "1")
-    for c in gui.tk.Button.call_args_list:
+    for c in (gui.tk.Button.call_args_list + gui.ttk.Button.call_args_list):
         cmd = c.kwargs.get("command")
         if cmd:
             cmd()
@@ -706,7 +714,7 @@ def test_edit_metadata_windows(gui, monkeypatch):
     gui.PIN = "1"
     gui.show_output_in_new_window("Domain: x\n", "1")
     # Run only the edit button (second tk.Button) to hit the win32 run() branch.
-    for c in gui.tk.Button.call_args_list:
+    for c in (gui.tk.Button.call_args_list + gui.ttk.Button.call_args_list):
         cmd = c.kwargs.get("command")
         if cmd:
             try:
