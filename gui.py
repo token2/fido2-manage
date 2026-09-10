@@ -387,27 +387,43 @@ def refresh_combobox():
 
 def show_output_in_new_window(output, device_digit):
     new_window = tk.Toplevel(root)
-    new_window.geometry("800x650")
+    # Ensure rows are tall enough for the (possibly HiDPI-scaled) font so cell
+    # text is not vertically clipped in this window.
+    try:
+        from tkinter import font as _tkfont
+        _line = _tkfont.nametofont("TkDefaultFont").metrics("linespace")
+        ttk.Style().configure("Treeview", rowheight=_line + 8)
+        _scale = max(1.0, _line / 18.0)
+        new_window.geometry(f"{int(800 * _scale)}x{int(650 * _scale)}")
+    except Exception:
+        new_window.geometry("800x650")
     new_window.title("Resident Keys / Passkeys")
 
     tree_new_window = ttk.Treeview(
         new_window, columns=("Domain", "Credential ID", "User"), show="headings"
     )
-    tree_new_window.heading("Domain", text="Domain")
-    tree_new_window.heading("Credential ID", text="Credential ID")
-    tree_new_window.heading("User", text="User")
-    tree_new_window.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+    tree_new_window.heading("Domain", text="Domain", anchor="w")
+    tree_new_window.heading("Credential ID", text="Credential ID", anchor="w")
+    tree_new_window.heading("User", text="User", anchor="w")
+    tree_new_window.column("Domain", width=200, minwidth=120, stretch=False, anchor="w")
+    tree_new_window.column("Credential ID", width=340, minwidth=200, stretch=False, anchor="w")
+    tree_new_window.column("User", width=260, minwidth=160, stretch=True, anchor="w")
 
+    # Pack scrollbars first so the tree receives the correct remaining area
+    # (prevents rows being vertically compressed / clipped).
     tree_scrollbar_y = ttk.Scrollbar(
         new_window, orient="vertical", command=tree_new_window.yview
     )
     tree_scrollbar_y.pack(side="right", fill="y")
-    tree_new_window.configure(yscrollcommand=tree_scrollbar_y.set)
     tree_scrollbar_x = ttk.Scrollbar(
         new_window, orient="horizontal", command=tree_new_window.xview
     )
     tree_scrollbar_x.pack(side="bottom", fill="x")
-    tree_new_window.configure(xscrollcommand=tree_scrollbar_x.set)
+    tree_new_window.configure(
+        yscrollcommand=tree_scrollbar_y.set,
+        xscrollcommand=tree_scrollbar_x.set,
+    )
+    tree_new_window.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
 
     current_domain = ""
     for line in output.splitlines():
@@ -461,7 +477,26 @@ root = tk.Tk()
 if args.dpi:
     set_dpi_awareness()
 
-root.geometry("700x600")
+# --- HiDPI / Wayland layout fix ---
+# On a scaled HiDPI panel Tk enlarges the default font (e.g. line height ~37px)
+# but the ttk.Treeview keeps its default rowheight (~20px), so cell text gets
+# clipped. Sync the Treeview rowheight (and default column width) to the real
+# font metrics, and size the window to fit.
+try:
+    from tkinter import font as _tkfont
+    _f = _tkfont.nametofont("TkDefaultFont")
+    _line = _f.metrics("linespace")            # actual pixel height of a text line
+    _rowheight = _line + 8                      # padding above/below text
+    _style = ttk.Style()
+    _style.configure("Treeview", rowheight=_rowheight)
+    _style.configure("Treeview.Heading", padding=4)
+    # Scale the default window with the font so columns have room.
+    _scale = max(1.0, _line / 18.0)             # 18px ~= line height at 96 DPI
+    _w, _h = int(700 * _scale), int(600 * _scale)
+    root.geometry(f"{_w}x{_h}")
+except Exception:
+    root.geometry("700x600")
+
 root.title("FIDO2.1 Manager - Python version 0.1 - (c) Token2")
 
 top_frame = ttk.Frame(root)
@@ -498,8 +533,10 @@ tree_scrollbar_y.config(command=tree.yview)
 tree_scrollbar_x.config(command=tree.xview)
 tree_scrollbar_y.pack(side="right", fill="y")
 tree_scrollbar_x.pack(side="bottom", fill="x")
-tree.heading("Key", text="Key")
-tree.heading("Value", text="Value")
+tree.heading("Key", text="Key", anchor="w")
+tree.heading("Value", text="Value", anchor="w")
+tree.column("Key", width=200, minwidth=120, stretch=False, anchor="w")
+tree.column("Value", width=460, minwidth=200, stretch=True, anchor="w")
 tree.pack(expand=True, fill=tk.BOTH)
 
 passkeys_button = ttk.Button(
