@@ -43,9 +43,45 @@ def gui_launch_command():
     return [sys.executable, GUI_PATH]
 
 
-def launch_gui(popen=subprocess.Popen):
-    """Launch the GUI as a detached process. ``popen`` is injectable for tests."""
-    return popen(gui_launch_command(), cwd=SCRIPT_DIR)
+# Debounce: udev emits several events per physical insertion (one per hidraw
+# node plus the usb device). Collapse them into a single launch, and never run
+# more than one GUI at a time.
+_DEBOUNCE_SECONDS = 3.0
+_last_launch_ts = 0.0
+_gui_process = None
+
+
+def _display_available():
+    """True if a usable X/Wayland display is present. Without this the launched
+    GUI would crash immediately; relaunching in a loop can exhaust the X server.
+    """
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def launch_gui(popen=subprocess.Popen, clock=None):
+    """Launch the GUI, guarded against relaunch storms.
+
+    - Skips launching if no display is available.
+    - Debounces rapid repeat events within _DEBOUNCE_SECONDS.
+    - Does not start a second GUI while one is still running.
+    Returns the process handle if launched, else None. ``popen``/``clock`` are
+    injectable for tests.
+    """
+    global _last_launch_ts, _gui_process
+    import time as _time
+    now = (clock or _time.monotonic)()
+
+    if not _display_available():
+        return None
+    if now - _last_launch_ts < _DEBOUNCE_SECONDS:
+        return None
+    # If a previous GUI is still alive, don't spawn another.
+    if _gui_process is not None and _gui_process.poll() is None:
+        return None
+
+    _last_launch_ts = now
+    _gui_process = popen(gui_launch_command(), cwd=SCRIPT_DIR)
+    return _gui_process
 
 
 def _extract_vendor_id(device):
@@ -59,7 +95,7 @@ def _extract_vendor_id(device):
 
 def handle_udev_event(device, launcher=launch_gui):
     """Handle a single pyudev event; launch the GUI on a matching insertion.
-    Returns True if the GUI was launched."""
+    Returns True if a launch was attempted (subject to launcher guards)."""
     action = getattr(device, "action", None)
     subsystem = getattr(device, "subsystem", None)
     vendor_id = _extract_vendor_id(device)
