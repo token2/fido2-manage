@@ -458,7 +458,227 @@ def show_output_in_new_window(output, device_digit):
     show_value_button = tk.Button(
         new_window, text="Delete Passkey", command=show_selected_value
     )
-    show_value_button.pack(pady=10)
+    show_value_button.pack(side=tk.LEFT, padx=10, pady=10)
+
+    def edit_selected_metadata():
+        selected_item = tree_new_window.selection()
+        if not selected_item:
+            messagebox.showinfo("No selection", "Select a passkey to edit.")
+            return
+        cred_id = tree_new_window.item(selected_item, "values")[1]
+        user_id = simpledialog.askstring(
+            "Edit metadata",
+            "User ID (base64 user handle) for this credential:",
+        )
+        if not user_id:
+            return
+        new_name = simpledialog.askstring("Edit metadata", "New name (e.g. user@example.com):") or ""
+        new_display = simpledialog.askstring("Edit metadata", "New display name:") or ""
+        args = [
+            FIDO_COMMAND, "-editCredential",
+            "-device", device_digit,
+            "-credential", cred_id,
+            "-userId", user_id,
+            "-name", new_name,
+            "-displayName", new_display,
+        ]
+        if PIN:
+            args += ["-pin", PIN]
+        if sys.platform.startswith("linux"):
+            subprocess.Popen([TERM] + TERM_FLAG + args)
+        else:
+            subprocess.run(args)
+
+    edit_button = tk.Button(
+        new_window, text="Edit Metadata", command=edit_selected_metadata
+    )
+    edit_button.pack(side=tk.LEFT, padx=10, pady=10)
+
+def _selected_device_digit():
+    """Return the device number from the combobox selection, or None."""
+    match = re.search(r"\[(\d+)\]", device_var.get())
+    if not match:
+        messagebox.showinfo("No device", "Please select a device first.")
+        return None
+    return match.group(1)
+
+
+def _run_wrapper(args, need_pin=False):
+    """Run fido2-manage.sh with args; optionally prompt for and pass the PIN.
+    Returns CompletedProcess or None if the user cancelled a PIN prompt."""
+    global PIN
+    cmd = [FIDO_COMMAND] + args
+    if need_pin:
+        if PIN is None:
+            get_pin()
+        if PIN is None:
+            return None
+        cmd += ["-pin", PIN]
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def show_stats():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+    result = _run_wrapper(["-stats", "-device", device_digit], need_pin=True)
+    if result is None:
+        return
+    win = tk.Toplevel(root)
+    win.title(f"Storage & Statistics - Device {device_digit}")
+    try:
+        from tkinter import font as _tkfont
+        _s = max(1.0, _tkfont.nametofont("TkDefaultFont").metrics("linespace") / 18.0)
+        win.geometry(f"{int(600 * _s)}x{int(500 * _s)}")
+    except Exception:
+        win.geometry("600x500")
+    txt = tk.Text(win, wrap="word")
+    txt.insert("1.0", (result.stdout or "") + (("\n" + result.stderr) if result.stderr else ""))
+    txt.config(state="disabled")
+    txt.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+
+def generate_ssh_key():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+
+    dlg = tk.Toplevel(root)
+    dlg.title("Generate SSH Security-Key")
+    dlg.transient(root)
+
+    ttk.Label(dlg, text="Key type:").grid(row=0, column=0, sticky="w", padx=10, pady=6)
+    type_var = tk.StringVar(value="ed25519-sk")
+    ttk.Combobox(
+        dlg, textvariable=type_var, values=["ed25519-sk", "ecdsa-sk"],
+        state="readonly", width=20,
+    ).grid(row=0, column=1, sticky="w", padx=10, pady=6)
+
+    resident_var = tk.BooleanVar(value=False)
+    ttk.Checkbutton(
+        dlg, text="Resident (store handle on key)", variable=resident_var
+    ).grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=6)
+
+    ttk.Label(dlg, text="Output path:").grid(row=2, column=0, sticky="w", padx=10, pady=6)
+    out_var = tk.StringVar(value=os.path.expanduser("~/.ssh/id_ed25519_sk"))
+    ttk.Entry(dlg, textvariable=out_var, width=40).grid(
+        row=2, column=1, sticky="w", padx=10, pady=6
+    )
+
+    ttk.Label(dlg, text="Application (optional):").grid(
+        row=3, column=0, sticky="w", padx=10, pady=6
+    )
+    app_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=app_var, width=40).grid(
+        row=3, column=1, sticky="w", padx=10, pady=6
+    )
+
+    def do_generate():
+        args = [
+            "-sshKeygen", "-device", device_digit,
+            "-sshType", type_var.get(),
+            "-sshOutput", out_var.get(),
+        ]
+        if resident_var.get():
+            args.append("-sshResident")
+        if app_var.get().strip():
+            args += ["-sshApplication", app_var.get().strip()]
+        dlg.destroy()
+        messagebox.showinfo(
+            "Touch required",
+            "Touch your security key when it blinks to complete key generation.",
+        )
+        # ssh-keygen is interactive (touch); run in a terminal so prompts show.
+        if sys.platform.startswith("linux"):
+            subprocess.Popen([TERM] + TERM_FLAG + [FIDO_COMMAND] + args)
+        else:
+            subprocess.run([FIDO_COMMAND] + args)
+
+    ttk.Button(dlg, text="Generate", command=do_generate).grid(
+        row=4, column=0, columnspan=2, pady=12
+    )
+
+
+def manage_large_blob():
+    device_digit = _selected_device_digit()
+    if device_digit is None:
+        return
+
+    dlg = tk.Toplevel(root)
+    dlg.title("Large Blob Management")
+    dlg.transient(root)
+
+    ttk.Label(dlg, text="Relying-party ID:").grid(
+        row=0, column=0, sticky="w", padx=10, pady=6
+    )
+    rp_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=rp_var, width=36).grid(
+        row=0, column=1, sticky="w", padx=10, pady=6
+    )
+
+    ttk.Label(dlg, text="Credential ID (if multiple):").grid(
+        row=1, column=0, sticky="w", padx=10, pady=6
+    )
+    cred_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=cred_var, width=36).grid(
+        row=1, column=1, sticky="w", padx=10, pady=6
+    )
+
+    ttk.Label(dlg, text="Blob file:").grid(row=2, column=0, sticky="w", padx=10, pady=6)
+    file_var = tk.StringVar(value="")
+    ttk.Entry(dlg, textvariable=file_var, width=36).grid(
+        row=2, column=1, sticky="w", padx=10, pady=6
+    )
+
+    def _base_args():
+        args = ["-device", device_digit, "-rpId", rp_var.get().strip()]
+        if cred_var.get().strip():
+            args += ["-credential", cred_var.get().strip()]
+        return args
+
+    def _require(*fields):
+        for label, val in fields:
+            if not val.strip():
+                messagebox.showerror("Missing", f"{label} is required.")
+                return False
+        return True
+
+    def do_get():
+        if not _require(("Relying-party ID", rp_var.get()), ("Blob file", file_var.get())):
+            return
+        res = _run_wrapper(
+            ["-largeBlobGet"] + _base_args() + ["-blobFile", file_var.get().strip()],
+            need_pin=True,
+        )
+        if res is not None:
+            messagebox.showinfo("Large Blob", (res.stdout or "") + (res.stderr or ""))
+
+    def do_set():
+        if not _require(("Relying-party ID", rp_var.get()), ("Blob file", file_var.get())):
+            return
+        res = _run_wrapper(
+            ["-largeBlobSet"] + _base_args() + ["-blobFile", file_var.get().strip()],
+            need_pin=True,
+        )
+        if res is not None:
+            messagebox.showinfo("Large Blob", (res.stdout or "") + (res.stderr or ""))
+
+    def do_delete():
+        if not _require(("Relying-party ID", rp_var.get())):
+            return
+        if not messagebox.askyesno("Confirm", "Delete the large-blob? This is irreversible."):
+            return
+        args = [FIDO_COMMAND, "-largeBlobDelete"] + _base_args()
+        if PIN:
+            args += ["-pin", PIN]
+        subprocess.Popen([TERM] + TERM_FLAG + args)
+
+    ttk.Button(dlg, text="Get", command=do_get).grid(row=3, column=0, pady=12, padx=6)
+    ttk.Button(dlg, text="Set", command=do_set).grid(row=3, column=1, sticky="w", pady=12)
+    ttk.Button(dlg, text="Delete", command=do_delete).grid(
+        row=4, column=0, columnspan=2, pady=4
+    )
+
 
 def show_about_message():
     messagebox.showinfo(
@@ -548,6 +768,15 @@ pin_button = ttk.Button(
     root, text="Set PIN", state=tk.DISABLED, command=set_pin
 )
 pin_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+stats_button = ttk.Button(root, text="Stats", command=show_stats)
+stats_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+ssh_button = ttk.Button(root, text="SSH Key", command=generate_ssh_key)
+ssh_button.pack(side=tk.LEFT, padx=5, pady=10)
+
+blob_button = ttk.Button(root, text="Large Blob", command=manage_large_blob)
+blob_button.pack(side=tk.LEFT, padx=5, pady=10)
 
 about_button = ttk.Button(root, text="About", command=show_about_message)
 about_button.pack(side=tk.RIGHT, padx=5, pady=10)
