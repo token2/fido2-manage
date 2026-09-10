@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""System-tray daemon for fido2-manage.
+"""Headless auto-open watcher for fido2-manage.
 
-Shows a tray icon (via AppIndicator3) with Open / Quit menu items, and
-auto-opens the GUI when a supported FIDO2 security key is inserted. Device
-insertion is detected with pyudev so everything stays inside the user's
-graphical session (udev itself has no display and cannot launch GUI apps).
+Monitors for insertion of a supported FIDO2 security key (via pyudev) and
+launches the GUI when one is plugged in. Detection runs inside the user's
+graphical session because udev itself has no display and cannot launch GUI
+apps. This daemon shows no tray icon of its own — the GUI owns the single
+tray icon (Open / Quit and minimise-to-tray).
 
-The GTK/GLib main loop and the udev observer are only started under
-``__main__`` so the module can be imported and unit-tested.
+The GLib main loop and the udev observer are only started under ``__main__``
+so the module can be imported and unit-tested.
 """
 import os
 import subprocess
@@ -105,51 +106,15 @@ def handle_udev_event(device, launcher=launch_gui):
     return False
 
 
-def build_menu(on_open, on_quit):
-    """Build the tray menu with Open and Quit items. Imported lazily so the
-    module can be imported without GTK present (e.g. in CI/tests)."""
-    import gi
-    gi.require_version("Gtk", "3.0")
-    from gi.repository import Gtk
+def main():  # pragma: no cover - requires a live udev/GLib session
+    """Headless watcher: monitor for FIDO2 key insertion and launch the GUI.
 
-    menu = Gtk.Menu()
-
-    open_item = Gtk.MenuItem(label="Open")
-    open_item.connect("activate", on_open)
-    menu.append(open_item)
-
-    quit_item = Gtk.MenuItem(label="Quit")
-    quit_item.connect("activate", on_quit)
-    menu.append(quit_item)
-
-    menu.show_all()
-    return menu
-
-
-def main():  # pragma: no cover - requires a live GTK session + tray
-    import gi
-    gi.require_version("Gtk", "3.0")
-    gi.require_version("AppIndicator3", "0.1")
-    from gi.repository import Gtk, GLib, AppIndicator3
+    The GUI owns the single tray icon (Open/Quit, minimise-to-tray), so this
+    daemon deliberately shows no tray icon of its own.
+    """
+    from gi.repository import GLib
     import pyudev
 
-    indicator = AppIndicator3.Indicator.new(
-        "fido2-manage-tray",
-        "security-high",  # themed icon name
-        AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
-    )
-    indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-
-    def on_open(_widget):
-        launch_gui()
-
-    def on_quit(_widget):
-        Gtk.main_quit()
-
-    indicator.set_menu(build_menu(on_open, on_quit))
-
-    # udev monitoring on a background thread; GUI launch is marshalled back to
-    # the GLib main loop to stay thread-safe.
     context = pyudev.Context()
     monitor = pyudev.Monitor.from_netlink(context)
 
@@ -159,7 +124,8 @@ def main():  # pragma: no cover - requires a live GTK session + tray
     observer = pyudev.MonitorObserver(monitor, callback=_observe)
     observer.start()
 
-    Gtk.main()
+    loop = GLib.MainLoop()
+    loop.run()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 [Unit]
-Description=fido2-manage system tray (auto-open on security-key insertion)
+Description=fido2-manage auto-open watcher (opens the GUI on security-key insertion)
 After=graphical-session.target
 PartOf=graphical-session.target
 # Prevent restart storms: no more than 5 starts in 30s.
