@@ -56,6 +56,32 @@ userId=""
 name=""
 displayName=""
 
+# --- Track 1: remaining binary primitives ---
+bioList=false
+bioDelete=false
+bioRename=false
+templateId=""
+templateName=""
+setPinMinRPs=""            # comma-separated rp_id list for -S -m
+genBlobKey=""             # output path to generate a base64 AES-256 blob key
+
+# --- Track 2: SSH key lifecycle ---
+sshDownload=false          # ssh-keygen -K (rehydrate resident SSH creds)
+sshList=false              # list SSH-SK resident creds on the key
+sshDir=""                  # dir for -sshDownload output
+sshAddKey=false            # ssh-add the generated/downloaded key
+
+# --- Track 3: audit / export ---
+audit=false
+auditFormat="json"        # json | csv
+auditOutput=""             # optional output file
+
+# --- Track 4: age / LUKS orchestration ---
+ageSetup=false
+ageOutput=""               # identity output path for age-plugin-fido2-hmac
+luksEnroll=false
+luksDevice=""              # block device for systemd-cryptenroll (guarded)
+
 show_message() {
     local message=$1
     local type=${2:-"Info"}
@@ -96,6 +122,24 @@ while [[ "$#" -gt 0 ]]; do
         -userId|--userId) userId="$2"; shift ;;
         -name|--name) name="$2"; shift ;;
         -displayName|--displayName) displayName="$2"; shift ;;
+        -bioList|--bioList) bioList=true ;;
+        -bioDelete|--bioDelete) bioDelete=true ;;
+        -bioRename|--bioRename) bioRename=true ;;
+        -templateId|--templateId) templateId="$2"; shift ;;
+        -templateName|--templateName) templateName="$2"; shift ;;
+        -setPinMinRPs|--setPinMinRPs) setPinMinRPs="$2"; shift ;;
+        -genBlobKey|--genBlobKey) genBlobKey="$2"; shift ;;
+        -sshDownload|--sshDownload) sshDownload=true ;;
+        -sshList|--sshList) sshList=true ;;
+        -sshDir|--sshDir) sshDir="$2"; shift ;;
+        -sshAddKey|--sshAddKey) sshAddKey=true ;;
+        -audit|--audit) audit=true ;;
+        -auditFormat|--auditFormat) auditFormat="$2"; shift ;;
+        -auditOutput|--auditOutput) auditOutput="$2"; shift ;;
+        -ageSetup|--ageSetup) ageSetup=true ;;
+        -ageOutput|--ageOutput) ageOutput="$2"; shift ;;
+        -luksEnroll|--luksEnroll) luksEnroll=true ;;
+        -luksDevice|--luksDevice) luksDevice="$2"; shift ;;
         -help|--help) help=true ;;
         *) show_message "Unknown parameter: $1" "Error"; exit 1 ;;
     esac
@@ -170,6 +214,32 @@ Examples:
 
 - Display script help information:
   ./fido2-manage.sh -help
+
+- List biometric enrollments (biometric models only):
+  ./fido2-manage.sh -bioList -device 1
+
+- Delete / rename a biometric template:
+  ./fido2-manage.sh -bioDelete -device 1 -templateId <id>
+  ./fido2-manage.sh -bioRename -device 1 -templateId <id> -templateName "Left index"
+
+- Set the relying-party allow-list for min PIN length:
+  ./fido2-manage.sh -setPinMinRPs login.microsoft.com,google.com -device 1
+
+- Generate an AES-256 base64 key for keyFile-addressed large-blobs:
+  ./fido2-manage.sh -genBlobKey ./blob.key
+
+- List SSH resident credentials / download resident SSH keys:
+  ./fido2-manage.sh -sshList -device 1
+  ./fido2-manage.sh -sshDownload -device 1 -sshDir ~/.ssh
+
+- Export an audit report (json or csv):
+  ./fido2-manage.sh -audit -device 1 -auditFormat json -auditOutput ./audit.json
+
+- Set up an age identity backed by the key's hmac-secret:
+  ./fido2-manage.sh -ageSetup -device 1 -ageOutput ~/.age/fido2.txt
+
+- Print the (guarded) LUKS enrollment command for a device:
+  ./fido2-manage.sh -luksEnroll -device 1 -luksDevice /dev/sda2
 EOF
 }
 
@@ -178,7 +248,7 @@ if $help; then
     exit 0
 fi
 
-if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && [[ -z $setMinimumPIN ]] && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $stats && ! $sshKeygen && ! $largeBlobGet && ! $largeBlobSet && ! $largeBlobDelete && ! $editCredential && ! $help; then
+if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && [[ -z $setMinimumPIN ]] && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $stats && ! $sshKeygen && ! $largeBlobGet && ! $largeBlobSet && ! $largeBlobDelete && ! $editCredential && ! $bioList && ! $bioDelete && ! $bioRename && [[ -z $setPinMinRPs ]] && [[ -z $genBlobKey ]] && ! $sshDownload && ! $sshList && ! $audit && ! $ageSetup && ! $luksEnroll && ! $help; then
     show_help
     exit 1
 fi
@@ -186,6 +256,20 @@ fi
 if [[ -z "$FIDO2_TOKEN_CMD" ]]; then
     show_message "fido2-token2 not found. Install it or ensure it is on your PATH." "Error"
     exit 1
+fi
+
+if [[ -n $genBlobKey ]]; then
+    # Generate a base64-encoded 32-byte AES-256 key for keyFile-addressed
+    # large-blobs. Device-independent.
+    if command -v openssl >/dev/null 2>&1; then
+        umask 077
+        openssl rand -base64 32 > "$genBlobKey"
+        show_message "Generated 32-byte AES-256 base64 blob key at $genBlobKey"
+        exit 0
+    else
+        show_message "openssl not found; cannot generate blob key." "Error"
+        exit 1
+    fi
 fi
 
 if $list; then
@@ -425,6 +509,128 @@ if [[ -n $device ]]; then
         # -Sc -i cred_id -k user_id -n name -p display_name device
         "$FIDO2_TOKEN_CMD" -Sc -i "$credential" -k "$userId" -n "$name" -p "$displayName" "$device_string" $([[ -n $pin ]] && echo "-w $pin")
         exit $?
+    fi
+
+    # --- Track 1: biometric template management ---
+    if $bioList; then
+        show_message "Biometric enrollments on device $device:"
+        "$FIDO2_TOKEN_CMD" -L -e "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+        exit $?
+    fi
+
+    if $bioDelete; then
+        [[ -z "$templateId" ]] && { show_message "-templateId <id> is required for -bioDelete." "Error"; exit 1; }
+        show_message "Deleting biometric enrollment $templateId on device $device"
+        "$FIDO2_TOKEN_CMD" -D -e -i "$templateId" "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+        exit $?
+    fi
+
+    if $bioRename; then
+        [[ -z "$templateId" || -z "$templateName" ]] && { show_message "-templateId and -templateName are required for -bioRename." "Error"; exit 1; }
+        show_message "Renaming biometric template $templateId to '$templateName' on device $device"
+        "$FIDO2_TOKEN_CMD" -S -i "$templateId" -n "$templateName" "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+        exit $?
+    fi
+
+    # --- Track 1: min-PIN-length RP allow-list ---
+    if [[ -n $setPinMinRPs ]]; then
+        show_message "Setting min-PIN-length RP allow-list to '$setPinMinRPs' on device $device"
+        "$FIDO2_TOKEN_CMD" -S -m "$setPinMinRPs" "$device_string" $([[ -n $pin ]] && echo "-w $pin")
+        exit $?
+    fi
+
+    # --- Track 2: SSH key lifecycle ---
+    if $sshList; then
+        # SSH-SK resident credentials use rp_id prefixed with "ssh:".
+        show_message "SSH resident credentials on device $device:"
+        "$FIDO2_TOKEN_CMD" -L -r "$device_string" $([[ -n $pin ]] && echo "-w $pin") | grep -i "ssh:" || show_message "No SSH resident credentials found."
+        exit 0
+    fi
+
+    if $sshDownload; then
+        if ! command -v ssh-keygen >/dev/null 2>&1; then
+            show_message "ssh-keygen not found. Install openssh-client." "Error"
+            exit 1
+        fi
+        target_dir="${sshDir:-$PWD}"
+        mkdir -p "$target_dir"
+        show_message "Downloading resident SSH keys into $target_dir. Touch the key when it blinks."
+        ( cd "$target_dir" && ssh-keygen -K )
+        rc=$?
+        [[ $rc -eq 0 ]] && show_message "Resident SSH keys downloaded to $target_dir." || show_message "ssh-keygen -K failed (exit $rc)." "Error"
+        exit $rc
+    fi
+
+    # --- Track 3: audit / export ---
+    if $audit; then
+        info_out=$("$FIDO2_TOKEN_CMD" -I "$device_string" 2>&1)
+        rp_out=$("$FIDO2_TOKEN_CMD" -L -r "$device_string" $([[ -n $pin ]] && echo "-w $pin") 2>&1)
+        emit=""
+        if [[ "$auditFormat" == "csv" ]]; then
+            emit="section,key,value"$'\n'
+            while IFS= read -r l; do
+                [[ "$l" == *": "* ]] && emit+="info,\"${l%%: *}\",\"${l#*: }\""$'\n'
+            done <<< "$info_out"
+            while IFS= read -r l; do
+                [[ -n "$l" ]] && emit+="rp,\"credential\",\"${l//\"/\"\"}\""$'\n'
+            done <<< "$rp_out"
+        else
+            # JSON
+            emit="{\"device\": $device, \"info\": {"
+            first=true
+            while IFS= read -r l; do
+                if [[ "$l" == *": "* ]]; then
+                    k="${l%%: *}"; v="${l#*: }"
+                    k="${k//\"/\\\"}"; v="${v//\"/\\\"}"
+                    $first || emit+=", "
+                    emit+="\"$k\": \"$v\""
+                    first=false
+                fi
+            done <<< "$info_out"
+            emit+="}, \"relying_parties\": ["
+            first=true
+            while IFS= read -r l; do
+                if [[ -n "$l" ]]; then
+                    v="${l//\"/\\\"}"
+                    $first || emit+=", "
+                    emit+="\"$v\""
+                    first=false
+                fi
+            done <<< "$rp_out"
+            emit+="]}"
+        fi
+        if [[ -n "$auditOutput" ]]; then
+            printf '%s\n' "$emit" > "$auditOutput"
+            show_message "Audit written to $auditOutput ($auditFormat)."
+        else
+            printf '%s\n' "$emit"
+        fi
+        exit 0
+    fi
+
+    # --- Track 4: age-plugin-fido2-hmac setup (guided) ---
+    if $ageSetup; then
+        if ! command -v age-plugin-fido2-hmac >/dev/null 2>&1; then
+            show_message "age-plugin-fido2-hmac not found. Install it, then re-run. See https://github.com/olastor/age-plugin-fido2-hmac" "Error"
+            exit 1
+        fi
+        out="${ageOutput:-$HOME/.age/fido2-hmac.txt}"
+        mkdir -p "$(dirname "$out")"
+        show_message "Generating age identity backed by the security key's hmac-secret. Touch the key when prompted."
+        age-plugin-fido2-hmac -g -o "$out"
+        rc=$?
+        [[ $rc -eq 0 ]] && show_message "age identity written to $out." || show_message "age-plugin-fido2-hmac failed (exit $rc)." "Error"
+        exit $rc
+    fi
+
+    # --- Track 4: LUKS enrollment (guarded, does NOT auto-run) ---
+    if $luksEnroll; then
+        [[ -z "$luksDevice" ]] && { show_message "-luksDevice <block device> is required for -luksEnroll." "Error"; exit 1; }
+        cmd="sudo systemd-cryptenroll --fido2-device=auto $luksDevice"
+        show_message "LUKS enrollment is a HIGH-RISK operation on a live volume and is NOT run automatically."
+        show_message "Review and run this command manually if you are certain:"
+        printf '    %s\n' "$cmd"
+        exit 0
     fi
 
     if $info; then
