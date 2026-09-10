@@ -165,9 +165,18 @@ def apply_theme(style, palette):
     style.configure("TEntry", fieldbackground=surface, foreground=fg,
                     bordercolor=border, insertcolor=fg)
     style.configure("TCombobox", fieldbackground=surface, foreground=fg,
-                    background=surface, bordercolor=border)
+                    background=surface, bordercolor=border, arrowsize=24, padding=4)
+    style.map("TCombobox", fieldbackground=[("readonly", surface)],
+              foreground=[("readonly", fg)])
     style.configure("Treeview", background=surface, fieldbackground=surface,
                     foreground=fg, bordercolor=border)
+    # Row height must track the (possibly HiDPI-scaled) font or cell text clips.
+    try:
+        from tkinter import font as _tkfont
+        _line = _tkfont.nametofont("TkDefaultFont").metrics("linespace")
+        style.configure("Treeview", rowheight=_line + 8)
+    except Exception:
+        pass
     style.map("Treeview", background=[("selected", accent)],
               foreground=[("selected", sel_fg)])
     style.configure("Treeview.Heading", background=surface_alt, foreground=fg,
@@ -1133,20 +1142,12 @@ def main():
     if args.dpi:
         set_dpi_awareness()
 
-    # --- HiDPI / Wayland layout fix ---
-    # On a scaled HiDPI panel Tk enlarges the default font (e.g. line height ~37px)
-    # but the ttk.Treeview keeps its default rowheight (~20px), so cell text gets
-    # clipped. Sync the Treeview rowheight (and default column width) to the real
-    # font metrics, and size the window to fit.
+    # --- HiDPI / Wayland window sizing ---
+    # Scale the default window with the font so columns have room. (Treeview
+    # rowheight is handled inside apply_theme so it survives theme_use.)
     try:
         from tkinter import font as _tkfont
-        _f = _tkfont.nametofont("TkDefaultFont")
-        _line = _f.metrics("linespace")            # actual pixel height of a text line
-        _rowheight = _line + 8                      # padding above/below text
-        _style = ttk.Style()
-        _style.configure("Treeview", rowheight=_rowheight)
-        _style.configure("Treeview.Heading", padding=4)
-        # Scale the default window with the font so columns have room.
+        _line = _tkfont.nametofont("TkDefaultFont").metrics("linespace")
         _scale = max(1.0, _line / 18.0)             # 18px ~= line height at 96 DPI
         _w, _h = int(700 * _scale), int(600 * _scale)
         root.geometry(f"{_w}x{_h}")
@@ -1164,14 +1165,20 @@ def main():
     except Exception:
         pass
 
-    # Header
+    # Static top-level layout via grid: rows can't overlap on resize. Only the
+    # tree row (row 3) stretches; the button rows keep a fixed height.
+    root.rowconfigure(3, weight=1)
+    root.columnconfigure(0, weight=1)
+
+    # Header (row 0)
     header = ttk.Frame(root)
-    header.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(12, 4))
+    header.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 4))
     ttk.Label(header, text="FIDO2.1 Security Key Manager",
               style="Header.TLabel").pack(side=tk.LEFT)
 
+    # Device row (row 1)
     top_frame = ttk.Frame(root)
-    top_frame.pack(side=tk.TOP, fill=tk.X)
+    top_frame.grid(row=1, column=0, sticky="ew")
 
     label = ttk.Label(top_frame, text="Select Device:")
     label.pack(side=tk.LEFT, padx=10, pady=10)
@@ -1189,8 +1196,13 @@ def main():
     refresh_button = ttk.Button(top_frame, text="Refresh", command=refresh_combobox)
     refresh_button.pack(side=tk.LEFT, padx=10, pady=10)
 
+    # Tabbed action panel (row 2)
+    notebook = ttk.Notebook(root)
+    notebook.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+
+    # Info tree (row 3, stretches)
     tree_frame = ttk.Frame(root)
-    tree_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+    tree_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=10)
     tree_scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical")
     tree_scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal")
     tree = ttk.Treeview(
@@ -1209,10 +1221,6 @@ def main():
     tree.column("Key", width=200, minwidth=120, stretch=False, anchor="w")
     tree.column("Value", width=460, minwidth=200, stretch=True, anchor="w")
     tree.pack(expand=True, fill=tk.BOTH)
-
-    # --- Tabbed action panel (ttk.Notebook) ---
-    notebook = ttk.Notebook(root)
-    notebook.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
 
     def _tab(title):
         f = ttk.Frame(notebook)
@@ -1259,19 +1267,21 @@ def main():
     ttk.Button(audit_tab, text="age Setup", command=age_setup).pack(side=tk.LEFT, padx=5, pady=8)
     ttk.Button(audit_tab, text="LUKS Enroll", command=luks_enroll).pack(side=tk.LEFT, padx=5, pady=8)
 
-    about_button = ttk.Button(root, text="About", command=show_about_message)
-    about_button.pack(side=tk.RIGHT, padx=5, pady=10)
+    # Bottom action bar (row 4) holds global actions in a fixed row.
+    action_bar = ttk.Frame(root)
+    action_bar.grid(row=4, column=0, sticky="ew", padx=8, pady=6)
+    about_button = ttk.Button(action_bar, text="About", command=show_about_message)
+    about_button.pack(side=tk.RIGHT, padx=5)
+    version_button = ttk.Button(action_bar, text="Version", command=show_version)
+    version_button.pack(side=tk.RIGHT, padx=5)
 
-    version_button = ttk.Button(root, text="Version", command=show_version)
-    version_button.pack(side=tk.RIGHT, padx=5, pady=10)
-
-    # Status bar
+    # Status bar (row 5, very bottom)
     status = ttk.Label(
         root,
         text="Ready — select a device to begin.",
         style="Status.TLabel", anchor="w", padding=(10, 4),
     )
-    status.pack(side=tk.BOTTOM, fill=tk.X)
+    status.grid(row=5, column=0, sticky="ew")
 
     # Minimise-to-tray: closing the window hides it; the tray icon restores it.
     indicator = start_tray()
