@@ -20,6 +20,25 @@ This library is partially forked from [libfido2](https://github.com/Yubico/libfi
 # Supported devices
 FIDO2.1 (PRE or FINAL) keys from any brand can be used. However, with FIDO2.0 keys, no passkey management is possible. As a result, only basic information will be shown with 2.0 devices. 
 
+# Features
+
+* Device info, storage/capacity statistics, and factory reset
+* PIN management: set, change, set minimum PIN length, min-PIN-length RP allow-list
+* User verification: enable/disable "always UV"
+* Resident credentials (passkeys): list (with user handle), delete, edit metadata
+* Large blobs: read, write, delete, and AES-256 key generation
+* Biometric templates (bio models): list, rename, delete, enroll
+* SSH security keys: generate, list resident, download (rehydrate), upload to a
+  remote (`ssh-copy-id`), add to the local ssh-agent
+* Audit/export: dump device info + relying parties to JSON or CSV
+* Encryption helpers: age identity setup (hmac-secret) and a guarded LUKS
+  enrollment command
+* GUI (`gui.py`): tabbed interface that adapts to the system light/dark theme
+  and accent color, minimises to a tray icon, and can auto-open when a key is
+  inserted (see "Auto-open watcher")
+
+Run `./fido2-manage.sh -help` for the full command list with examples.
+
 # Installation
 If you haven't installed Git yet, please do so (`sudo apt install git`)
 
@@ -57,6 +76,10 @@ The GUI wrapper (`gui.py`) created with Python3 is included in the package and s
 The steps above are also suitable for Debian releases. However, for the GUI on Debian, the python3-pexpect module must also be installed.
 
 `sudo apt install -y python3-pexpect`
+
+The auto-open watcher (optional, see below) additionally needs pyudev:
+
+`sudo apt install -y python3-pyudev`
 
 To run the script, execute it using Python from the same folder:
 
@@ -104,10 +127,38 @@ Due to limitations of command-line applications, sensitive parameters such as PI
 The changes implemented in our fork differ from the original code in the following ways:
 * Human-readable command line arguments, consistent with our Windows command line tool
 * The ability to send the PIN as a command line parameter
-* Displaying the Username (UPN) in the credential output list.
+* Displaying the Username (UPN) and user handle in the credential output list.
+* Additional commands: storage stats, min-PIN-length RP list, large-blob key
+  generation, biometric template management, SSH key lifecycle (generate/list/
+  download/upload/add-to-agent), JSON/CSV audit export, age setup, and a guarded
+  LUKS enrollment helper.
+* A modernised GUI that adapts to the system light/dark theme and accent color,
+  minimises to a tray icon, and an optional auto-open watcher.
+* A unit-test suite with a 100% coverage gate and a CI workflow.
 
 To allow coexistence with the original tool, our version will be compiled and installed under the name 'fido2-token2'.
 
+
+## Auto-open watcher (optional) ##
+A small headless watcher (`fido2_tray.py`) can open the GUI automatically when a
+supported key is inserted. The GUI itself owns the tray icon (Open / Quit and
+minimise-to-tray); the watcher only detects insertion.
+
+Install it to start at login via systemd or XDG autostart:
+```bash
+./packaging/install-watcher.sh systemd     # systemd --user service (default)
+./packaging/install-watcher.sh autostart   # XDG autostart entry
+```
+Requires `python3-pyudev`. On GNOME, tray icons need the "AppIndicator Support"
+extension (enabled by default on Ubuntu).
+
+## Testing ##
+Unit tests cover the GUI and watcher logic (subprocess and tkinter are mocked,
+so no hardware or display is required):
+```bash
+sudo apt install -y python3-pytest python3-pytest-cov
+python3 -m pytest
+```
 
 ## Installation instructions for other platforms ##
 ### ArchLinux ###
