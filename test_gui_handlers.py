@@ -395,6 +395,17 @@ def test_show_about(gui):
     gui.messagebox.showinfo.assert_called()
 
 
+def test_show_version(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_run_wrapper", lambda *a, **k: _cp(0, "1.15.0"))
+    gui.show_version()
+    gui.messagebox.showinfo.assert_called()
+
+
+def test_show_version_cancelled(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_run_wrapper", lambda *a, **k: None)
+    gui.show_version()
+
+
 # --- set_pin / change_pin ------------------------------------------------
 def test_set_pin_success(gui, monkeypatch):
     gui.device_var = mock.MagicMock()
