@@ -74,6 +74,7 @@ sshUpload=false            # ssh-copy-id the pubkey to a remote host
 sshHost=""                 # [user@]host target for -sshUpload
 sshPort=""                 # optional ssh port for -sshUpload
 sshKey=""                  # identity/key path for -sshUpload / -sshAddKey
+version=false              # print libfido2 (fido2-token2 -V) version
 
 # --- Track 3: audit / export ---
 audit=false
@@ -141,6 +142,7 @@ while [[ "$#" -gt 0 ]]; do
         -sshHost|--sshHost) sshHost="$2"; shift ;;
         -sshPort|--sshPort) sshPort="$2"; shift ;;
         -sshKey|--sshKey) sshKey="$2"; shift ;;
+        -version|--version|-V) version=true ;;
         -audit|--audit) audit=true ;;
         -auditFormat|--auditFormat) auditFormat="$2"; shift ;;
         -auditOutput|--auditOutput) auditOutput="$2"; shift ;;
@@ -247,6 +249,9 @@ Examples:
 - Add an SSH (FIDO) key to the local ssh-agent:
   ./fido2-manage.sh -sshAddKey -sshKey ~/.ssh/id_ed25519_sk
 
+- Print the underlying libfido2 version:
+  ./fido2-manage.sh -version
+
 - Export an audit report (json or csv):
   ./fido2-manage.sh -audit -device 1 -auditFormat json -auditOutput ./audit.json
 
@@ -263,7 +268,7 @@ if $help; then
     exit 0
 fi
 
-if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && [[ -z $setMinimumPIN ]] && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $stats && ! $sshKeygen && ! $largeBlobGet && ! $largeBlobSet && ! $largeBlobDelete && ! $editCredential && ! $bioList && ! $bioDelete && ! $bioRename && [[ -z $setPinMinRPs ]] && [[ -z $genBlobKey ]] && ! $sshDownload && ! $sshList && ! $sshUpload && ! $sshAddKey && ! $audit && ! $ageSetup && ! $luksEnroll && ! $help; then
+if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && [[ -z $setMinimumPIN ]] && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $stats && ! $sshKeygen && ! $largeBlobGet && ! $largeBlobSet && ! $largeBlobDelete && ! $editCredential && ! $bioList && ! $bioDelete && ! $bioRename && [[ -z $setPinMinRPs ]] && [[ -z $genBlobKey ]] && ! $sshDownload && ! $sshList && ! $sshUpload && ! $sshAddKey && ! $audit && ! $ageSetup && ! $luksEnroll && ! $version && ! $help; then
     show_help
     exit 1
 fi
@@ -285,6 +290,16 @@ if [[ -n $genBlobKey ]]; then
         show_message "openssl not found; cannot generate blob key." "Error"
         exit 1
     fi
+fi
+
+if $version; then
+    # Surface the underlying libfido2 (fido2-token2) version string.
+    if [[ -z "$FIDO2_TOKEN_CMD" ]]; then
+        show_message "fido2-token2 not found on PATH." "Error"
+        exit 1
+    fi
+    "$FIDO2_TOKEN_CMD" -V
+    exit $?
 fi
 
 if $sshUpload; then

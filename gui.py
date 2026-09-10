@@ -979,6 +979,12 @@ def start_tray():
     return indicator
 
 
+def show_version():
+    result = _run_wrapper(["-version"])
+    if result is not None:
+        messagebox.showinfo("Version", (result.stdout or "") + (result.stderr or ""))
+
+
 def show_about_message():
     messagebox.showinfo(
         "About",
@@ -1119,6 +1125,9 @@ def main():
 
     about_button = ttk.Button(root, text="About", command=show_about_message)
     about_button.pack(side=tk.RIGHT, padx=5, pady=10)
+
+    version_button = ttk.Button(root, text="Version", command=show_version)
+    version_button.pack(side=tk.RIGHT, padx=5, pady=10)
 
     # Minimise-to-tray: closing the window hides it; the tray icon restores it.
     indicator = start_tray()
