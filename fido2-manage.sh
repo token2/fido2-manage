@@ -70,6 +70,10 @@ sshDownload=false          # ssh-keygen -K (rehydrate resident SSH creds)
 sshList=false              # list SSH-SK resident creds on the key
 sshDir=""                  # dir for -sshDownload output
 sshAddKey=false            # ssh-add the generated/downloaded key
+sshUpload=false            # ssh-copy-id the pubkey to a remote host
+sshHost=""                 # [user@]host target for -sshUpload
+sshPort=""                 # optional ssh port for -sshUpload
+sshKey=""                  # identity/key path for -sshUpload / -sshAddKey
 
 # --- Track 3: audit / export ---
 audit=false
@@ -133,6 +137,10 @@ while [[ "$#" -gt 0 ]]; do
         -sshList|--sshList) sshList=true ;;
         -sshDir|--sshDir) sshDir="$2"; shift ;;
         -sshAddKey|--sshAddKey) sshAddKey=true ;;
+        -sshUpload|--sshUpload) sshUpload=true ;;
+        -sshHost|--sshHost) sshHost="$2"; shift ;;
+        -sshPort|--sshPort) sshPort="$2"; shift ;;
+        -sshKey|--sshKey) sshKey="$2"; shift ;;
         -audit|--audit) audit=true ;;
         -auditFormat|--auditFormat) auditFormat="$2"; shift ;;
         -auditOutput|--auditOutput) auditOutput="$2"; shift ;;
@@ -232,6 +240,13 @@ Examples:
   ./fido2-manage.sh -sshList -device 1
   ./fido2-manage.sh -sshDownload -device 1 -sshDir ~/.ssh
 
+- Upload an SSH public key to a remote host's authorized_keys:
+  ./fido2-manage.sh -sshUpload -sshKey ~/.ssh/id_ed25519_sk.pub -sshHost user@host
+  ./fido2-manage.sh -sshUpload -sshKey ~/.ssh/id_ed25519_sk.pub -sshHost user@host -sshPort 2222
+
+- Add an SSH (FIDO) key to the local ssh-agent:
+  ./fido2-manage.sh -sshAddKey -sshKey ~/.ssh/id_ed25519_sk
+
 - Export an audit report (json or csv):
   ./fido2-manage.sh -audit -device 1 -auditFormat json -auditOutput ./audit.json
 
@@ -248,7 +263,7 @@ if $help; then
     exit 0
 fi
 
-if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && [[ -z $setMinimumPIN ]] && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $stats && ! $sshKeygen && ! $largeBlobGet && ! $largeBlobSet && ! $largeBlobDelete && ! $editCredential && ! $bioList && ! $bioDelete && ! $bioRename && [[ -z $setPinMinRPs ]] && [[ -z $genBlobKey ]] && ! $sshDownload && ! $sshList && ! $audit && ! $ageSetup && ! $luksEnroll && ! $help; then
+if ! $list && ! $info && [[ -z $device ]] && ! $fingerprint && ! $storage && ! $residentKeys && [[ -z $domain ]] && ! $delete && [[ -z $credential ]] && ! $changePIN && [[ -z $setMinimumPIN ]] && ! $setPIN && ! $reset && ! $uvs && ! $uvd && ! $stats && ! $sshKeygen && ! $largeBlobGet && ! $largeBlobSet && ! $largeBlobDelete && ! $editCredential && ! $bioList && ! $bioDelete && ! $bioRename && [[ -z $setPinMinRPs ]] && [[ -z $genBlobKey ]] && ! $sshDownload && ! $sshList && ! $sshUpload && ! $sshAddKey && ! $audit && ! $ageSetup && ! $luksEnroll && ! $help; then
     show_help
     exit 1
 fi
@@ -270,6 +285,39 @@ if [[ -n $genBlobKey ]]; then
         show_message "openssl not found; cannot generate blob key." "Error"
         exit 1
     fi
+fi
+
+if $sshUpload; then
+    # Push a public key to a remote host's authorized_keys via ssh-copy-id.
+    # Device-independent: operates on the generated key file, not the token.
+    [[ -z "$sshHost" ]] && { show_message "-sshHost [user@]host is required for -sshUpload." "Error"; exit 1; }
+    [[ -z "$sshKey" ]] && { show_message "-sshKey <path to public/identity key> is required for -sshUpload." "Error"; exit 1; }
+    if ! command -v ssh-copy-id >/dev/null 2>&1; then
+        show_message "ssh-copy-id not found. Install openssh-client." "Error"
+        exit 1
+    fi
+    copy_args=(-i "$sshKey")
+    [[ -n "$sshPort" ]] && copy_args+=(-p "$sshPort")
+    copy_args+=("$sshHost")
+    show_message "Uploading $sshKey to $sshHost via ssh-copy-id (you may be prompted to authenticate / touch the key)."
+    ssh-copy-id "${copy_args[@]}"
+    rc=$?
+    [[ $rc -eq 0 ]] && show_message "Public key installed on $sshHost." || show_message "ssh-copy-id failed (exit $rc)." "Error"
+    exit $rc
+fi
+
+if $sshAddKey; then
+    # Load a (FIDO) SSH key into the local ssh-agent.
+    [[ -z "$sshKey" ]] && { show_message "-sshKey <path to private/identity key> is required for -sshAddKey." "Error"; exit 1; }
+    if ! command -v ssh-add >/dev/null 2>&1; then
+        show_message "ssh-add not found. Install openssh-client." "Error"
+        exit 1
+    fi
+    show_message "Adding $sshKey to the ssh-agent (touch the key if prompted)."
+    ssh-add "$sshKey"
+    rc=$?
+    [[ $rc -eq 0 ]] && show_message "Key added to the ssh-agent." || show_message "ssh-add failed (exit $rc). Is an agent running (ssh-agent)?" "Error"
+    exit $rc
 fi
 
 if $list; then

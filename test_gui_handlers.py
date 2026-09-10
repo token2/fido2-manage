@@ -928,6 +928,62 @@ def test_ssh_download_windows(gui, monkeypatch):
     run.assert_called()
 
 
+# --- ssh_upload / ssh_add_key --------------------------------------------
+def test_ssh_upload_with_port(gui, monkeypatch):
+    gui.simpledialog.askstring.side_effect = ["/k.pub", "user@host", "2222"]
+    popen = mock.MagicMock(); monkeypatch.setattr(gui.subprocess, "Popen", popen)
+    gui.ssh_upload()
+    popen.assert_called_once()
+    argv = popen.call_args[0][0]
+    assert "-sshPort" in argv and "2222" in argv
+
+
+def test_ssh_upload_no_port(gui, monkeypatch):
+    gui.simpledialog.askstring.side_effect = ["/k.pub", "user@host", ""]
+    popen = mock.MagicMock(); monkeypatch.setattr(gui.subprocess, "Popen", popen)
+    gui.ssh_upload()
+    argv = popen.call_args[0][0]
+    assert "-sshPort" not in argv
+
+
+def test_ssh_upload_cancel_key(gui):
+    gui.simpledialog.askstring.return_value = None
+    gui.ssh_upload()
+
+
+def test_ssh_upload_cancel_host(gui):
+    gui.simpledialog.askstring.side_effect = ["/k.pub", None]
+    gui.ssh_upload()
+
+
+def test_ssh_upload_windows(gui, monkeypatch):
+    monkeypatch.setattr(gui.sys, "platform", "win32")
+    gui.simpledialog.askstring.side_effect = ["/k.pub", "user@host", ""]
+    run = mock.MagicMock(); monkeypatch.setattr(gui.subprocess, "run", run)
+    gui.ssh_upload()
+    run.assert_called()
+
+
+def test_ssh_add_key(gui, monkeypatch):
+    gui.simpledialog.askstring.return_value = "/k"
+    popen = mock.MagicMock(); monkeypatch.setattr(gui.subprocess, "Popen", popen)
+    gui.ssh_add_key()
+    popen.assert_called_once()
+
+
+def test_ssh_add_key_cancel(gui):
+    gui.simpledialog.askstring.return_value = None
+    gui.ssh_add_key()
+
+
+def test_ssh_add_key_windows(gui, monkeypatch):
+    monkeypatch.setattr(gui.sys, "platform", "win32")
+    gui.simpledialog.askstring.return_value = "/k"
+    run = mock.MagicMock(); monkeypatch.setattr(gui.subprocess, "run", run)
+    gui.ssh_add_key()
+    run.assert_called()
+
+
 # --- Track 3: audit ------------------------------------------------------
 def test_export_audit(gui, monkeypatch):
     _dev(gui)
