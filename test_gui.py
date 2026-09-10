@@ -16,7 +16,7 @@ def _install_fake_tk(monkeypatch, terminal=("gnome-terminal", ["--"])):
     tk = types.ModuleType("tkinter")
     for name in ("Tk", "Toplevel", "Label", "Button", "Text", "StringVar", "BooleanVar"):
         setattr(tk, name, mock.MagicMock(name=name))
-    tk.END = "end"; tk.BOTH = "both"; tk.TOP = "top"; tk.LEFT = "left"
+    tk.END = "end"; tk.BOTH = "both"; tk.TOP = "top"; tk.LEFT = "left"; tk.BOTTOM = "bottom"
     tk.RIGHT = "right"; tk.X = "x"; tk.NORMAL = "normal"
     tk.DISABLED = "disabled"; tk.ACTIVE = "active"
 
@@ -159,3 +159,86 @@ def test_get_pin(gui):
     gui.simpledialog.askstring.return_value = "4321"
     assert gui.get_pin() == "4321"
     assert gui.PIN == "4321"
+
+
+# --- theme: _gsettings ---------------------------------------------------
+def test_gsettings_success(gui, monkeypatch):
+    cp = mock.MagicMock(returncode=0, stdout="'prefer-dark'\n")
+    monkeypatch.setattr(gui.subprocess, "run", lambda *a, **k: cp)
+    assert gui._gsettings("schema", "key") == "prefer-dark"
+
+
+def test_gsettings_nonzero(gui, monkeypatch):
+    cp = mock.MagicMock(returncode=1, stdout="")
+    monkeypatch.setattr(gui.subprocess, "run", lambda *a, **k: cp)
+    assert gui._gsettings("s", "k") is None
+
+
+def test_gsettings_empty(gui, monkeypatch):
+    cp = mock.MagicMock(returncode=0, stdout="''\n")
+    monkeypatch.setattr(gui.subprocess, "run", lambda *a, **k: cp)
+    assert gui._gsettings("s", "k") is None
+
+
+def test_gsettings_exception(gui, monkeypatch):
+    monkeypatch.setattr(gui.subprocess, "run", mock.MagicMock(side_effect=OSError))
+    assert gui._gsettings("s", "k") is None
+
+
+# --- theme: detect_color_scheme / detect_accent_color --------------------
+def test_detect_color_scheme_dark(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_gsettings", lambda *a: "prefer-dark")
+    assert gui.detect_color_scheme() == "dark"
+
+
+def test_detect_color_scheme_light(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_gsettings", lambda *a: "default")
+    assert gui.detect_color_scheme() == "light"
+
+
+def test_detect_color_scheme_none(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_gsettings", lambda *a: None)
+    assert gui.detect_color_scheme() == "light"
+
+
+def test_detect_accent_known(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_gsettings", lambda *a: "purple")
+    assert gui.detect_accent_color() == gui._ACCENT_HEX["purple"]
+
+
+def test_detect_accent_unknown(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_gsettings", lambda *a: "chartreuse")
+    assert gui.detect_accent_color() == "#3584e4"
+
+
+def test_detect_accent_none(gui, monkeypatch):
+    monkeypatch.setattr(gui, "_gsettings", lambda *a: None)
+    assert gui.detect_accent_color() == "#3584e4"
+
+
+# --- theme: build_palette ------------------------------------------------
+def test_build_palette_dark(gui):
+    p = gui.build_palette("dark", "#9141ac")
+    assert p["bg"] == "#1e1e2e" and p["accent"] == "#9141ac"
+
+
+def test_build_palette_light(gui):
+    p = gui.build_palette("light", "#3584e4")
+    assert p["bg"] == "#f6f6fb" and p["accent"] == "#3584e4"
+
+
+# --- theme: apply_theme --------------------------------------------------
+def test_apply_theme(gui):
+    style = mock.MagicMock()
+    palette = gui.build_palette("dark", "#9141ac")
+    assert gui.apply_theme(style, palette) is palette
+    style.configure.assert_any_call("TFrame", background="#1e1e2e")
+
+
+def test_apply_theme_theme_use_fails(gui):
+    style = mock.MagicMock()
+    style.theme_use.side_effect = Exception("no clam")
+    palette = gui.build_palette("light", "#3584e4")
+    # Should swallow the theme_use error and still configure styles.
+    gui.apply_theme(style, palette)
+    assert style.configure.called
