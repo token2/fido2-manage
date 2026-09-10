@@ -840,6 +840,41 @@ def ssh_download():
         subprocess.run(args)
 
 
+def ssh_upload():
+    key = simpledialog.askstring(
+        "Upload SSH key", "Path to the public key to upload:",
+        initialvalue=os.path.expanduser("~/.ssh/id_ed25519_sk.pub"),
+    )
+    if not key:
+        return
+    host = simpledialog.askstring("Upload SSH key", "Remote target ([user@]host):")
+    if not host:
+        return
+    port = simpledialog.askstring("Upload SSH key", "SSH port (optional):") or ""
+    args = [FIDO_COMMAND, "-sshUpload", "-sshKey", key, "-sshHost", host]
+    if port.strip():
+        args += ["-sshPort", port.strip()]
+    # Interactive (remote auth / touch): run in a terminal.
+    if sys.platform.startswith("linux"):
+        subprocess.Popen([TERM] + TERM_FLAG + args)
+    else:
+        subprocess.run(args)
+
+
+def ssh_add_key():
+    key = simpledialog.askstring(
+        "Add SSH key to agent", "Path to the private/identity key:",
+        initialvalue=os.path.expanduser("~/.ssh/id_ed25519_sk"),
+    )
+    if not key:
+        return
+    args = [FIDO_COMMAND, "-sshAddKey", "-sshKey", key]
+    if sys.platform.startswith("linux"):
+        subprocess.Popen([TERM] + TERM_FLAG + args)
+    else:
+        subprocess.run(args)
+
+
 def export_audit():
     device_digit = _selected_device_digit()
     if device_digit is None:
@@ -1062,6 +1097,8 @@ def main():
     ttk.Button(ssh_tab, text="Generate Key", command=generate_ssh_key).pack(side=tk.LEFT, padx=5, pady=8)
     ttk.Button(ssh_tab, text="List Resident", command=show_ssh_list).pack(side=tk.LEFT, padx=5, pady=8)
     ttk.Button(ssh_tab, text="Download", command=ssh_download).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(ssh_tab, text="Upload", command=ssh_upload).pack(side=tk.LEFT, padx=5, pady=8)
+    ttk.Button(ssh_tab, text="Add to Agent", command=ssh_add_key).pack(side=tk.LEFT, padx=5, pady=8)
 
     # Blobs tab
     blob_tab = _tab("Blobs")
