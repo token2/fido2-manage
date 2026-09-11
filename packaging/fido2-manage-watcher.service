@@ -1,0 +1,21 @@
+[Unit]
+Description=fido2-manage auto-open watcher (opens the GUI on security-key insertion)
+After=graphical-session.target
+PartOf=graphical-session.target
+# Prevent restart storms: no more than 5 starts in 30s.
+StartLimitIntervalSec=30
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# %h expands to the user's home directory. Adjust if installed elsewhere.
+ExecStart=/usr/bin/python3 %h/fido2-manage/fido2_tray.py
+Restart=on-failure
+RestartSec=5
+# Inherit the graphical session environment so launched GUIs can reach the
+# display. On modern GNOME the user manager already imports these; this is a
+# safety net for setups that do not.
+PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
+
+[Install]
+WantedBy=graphical-session.target

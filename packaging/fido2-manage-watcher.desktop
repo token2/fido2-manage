@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=fido2-manage auto-open
+Comment=Watches for security-key insertion and opens fido2-manage
+Exec=python3 %h/fido2-manage/fido2_tray.py
+Icon=security-high
+Terminal=false
+Categories=Utility;Security;
+X-GNOME-Autostart-enabled=true
