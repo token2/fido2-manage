@@ -1,3 +1,9 @@
+>### ⚠️ This project is being rewritten ###
+>fido2-manage is undergoing a ground-up rewrite. The core FIDO2 engine remains libfido2 (C/C++), but the wrapper and GUI are being rebuilt in Rust + Tauri — replacing the previous Python/pexpect wrapper with a single native binary (no Python dependency, portable no-root install).
+>The current (legacy) implementation is being preserved on the legacy branch, and main will host the new Rust/Tauri version shortly.
+>If you depend on the current version, you will have the option to pin to the legacy branch.
+
+
 # fido2-manage
  
 *fido2-manage* is a tool allowing to manage  FIDO2.1 devices over USB or NFC, including Passkey (resident keys) management
