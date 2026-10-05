@@ -1,0 +1,111 @@
+== Yubico PIV Tool
+The Token2 key supports the Personal Identity Verification (PIV) card
+interface specified in NIST SP 800-73 document "Cryptographic
+Algorithms and Key Sizes for PIV".  PIV enables you to perform RSA or
+ECC sign/decrypt operations using a private key stored on the
+smartcard, through common interfaces like PKCS#11.  This project
+contain the library, tools and PKCS#11 module to interact with the
+hardware functionality.
+
+* PIV Standards https://csrc.nist.gov/groups/SNS/piv/standards.html
+
+=== General information
+The default PIN code is 123456.  The default PUK code is 12345678.
+
+For firmware 5.7 and above:
+The default AES-192 management key (9B) is
+865362865362865362865362865362865362865362865362.
+
+For firmware 5.4 and below:
+The default 3DES management key (9B) is
+865362865362865362865362865362865362865362865362.
+
+The following key slots exists:
+
+* 9A, 9C, 9D, 9E: RSA 1024, RSA 2048, ECC secp256r1 or ECC secp384r1 keys
+  (algorithms 6, 7, 11 respectively).
+
+* 9B: Triple-DES key (algorithm 3) for PIV management.
+
+The maximum size of stored objects is 2025/3049 bytes for current versions of
+Token2 key NEO and Token2 key 4, respectively.
+
+Currently all functionality are available over both contact and
+contactless interfaces (contrary to what the specifications mandate).
+
+=== Preparing a Token2 key for real use
+You would typically change the management key to make sure nobody but
+you can modify the state of the PIV application on the Token2 key.  Make sure to
+keep a copy of the key around for later use.
+All of these invocations will leave traces of keys and pins in the command line
+history, this can be avoided by leaving the argument out all-together and the
+software will ask for key/pin to be input. For the management key option (-k)
+this is achieved by leaving out the value but will specifying -k.
+
+  $ key=$(export LC_CTYPE=C; dd if=/dev/urandom 2>/dev/null | tr -d '[:lower:]' | tr -cd '[:xdigit:]' | fold -w48 | head -1)
+  $ echo ${key}
+  $ token2-piv-tool -aset-mgm-key -n${key}
+
+The PIN and PUK should be changed as well.
+
+  $ pin=$(export LC_CTYPE=C; dd if=/dev/urandom 2>/dev/null | tr -cd '[:digit:]' | fold -w6 | head -1)
+  $ echo ${pin}
+
+  $ puk=$(export LC_CTYPE=C; dd if=/dev/urandom 2>/dev/null | tr -cd '[:digit:]' | fold -w8 | head -1)
+  $ echo ${puk}
+
+  $ token2-piv-tool -achange-pin -P123456 -N${pin}
+  $ token2-piv-tool -achange-puk -P12345678 -N${puk}
+
+=== Secure Channel Communication
+
+Some Token2 keys with firmware version 5.7.0 and higher have support for encrypted communicating over a secure channel. Encryption in Yubico PIV
+Tool is based on the *SCP11b* protocol as specified in https://globalplatform.org/wp-content/uploads/2017/09/GPC_2.2_F_SCP11_v1.0.pdf
+and can be activated by adding the `--enc` flag in the command line tool or open a connection with the encryption boolean set to `true` when
+using `libt2piv` during development. Once encryption is activated, all subsequent communication over the same session will
+be encrypted. Note that the SCP11b based implementation entails that the communication is encrypted but the On-Card
+certificate (`CERT.SD.ECKA`) used to setup the encrypted session is not validated. The feature is used mainly to protect
+sensitive communication between the host and the Token2 key against monitoring over a medium which could potentially be
+eavesdropped on, such as NFC.
+
+=== Other useful commands
+To generate a new private key:
+
+  $ token2-piv-tool -k${key} -agenerate -s9c
+
+To reset PIN/PUK retry counter AND codes (default pin 123456 puk
+12345678):
+
+  $ token2-piv-tool -k${key} -averify -P${pin} -apin-retries --pin-retries=3 --puk-retries=3
+
+To reset the application (PIN/PUK need to be blocked hence trying a couple
+of times -- you need to modify this if you have changed the default
+number of PIN/PUK retries).
+
+  $ token2-piv-tool -averify-pin -P471112
+  $ token2-piv-tool -averify-pin -P471112
+  $ token2-piv-tool -averify-pin -P471112
+  $ token2-piv-tool -averify-pin -P471112
+  $ token2-piv-tool -achange-puk -P471112 -N6756789
+  $ token2-piv-tool -achange-puk -P471112 -N6756789
+  $ token2-piv-tool -achange-puk -P471112 -N6756789
+  $ token2-piv-tool -achange-puk -P471112 -N6756789
+  $ token2-piv-tool -areset
+
+=== Software
+Card management has been tested with the tools from the OpenSC
+project, specifically piv-tool, and Yubico's PIV software (see
+below).  Basic features should work with any PIV compliant
+middleware.
+
+* https://github.com/OpenSC/OpenSC/wiki
+* https://developers.yubico.com/token2-piv-tool/
+* https://developers.yubico.com/yubikey-piv-manager/
+* https://github.com/OpenSC/OpenSC/wiki/US-PIV
+* https://github.com/OpenSC/OpenSC/wiki/PivTool
+
+=== Card Holder Unique Identifier
+For the application to be usable in windows the object CHUID (Card Holder
+Unique Identifier) has to be set and unique. The card contents are
+also aggressively cached so the CHUID has to be changed if the card
+contents change.

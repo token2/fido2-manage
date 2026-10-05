@@ -1,0 +1,207 @@
+== Yubico PIV Tool
+
+=== Introduction
+The Yubico PIV tool is used for interacting with the Personal
+Identity Verification (PIV) application on a https://www.yubico.com[YubiKey].
+
+With it you may generate keys on the device, importing keys and
+certificates, and create certificate requests, and other operations.
+A shared library and a command-line tool is included.
+
+==== Usage guides
+For information and examples on what you can do with a PIV enabled YubiKey,
+see https://developers.yubico.com/PIV/
+
+=== License
+In general the project is covered by the following BSD license.  The
+file t2cs11/pkcs11.h has additional copyright and licensing
+information, please see it for more information.
+
+----
+   Copyright (c) 2014-2020 Yubico AB
+   All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are
+   met:
+
+     * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+
+     * Redistributions in binary form must reproduce the above
+       copyright notice, this list of conditions and the following
+       disclaimer in the documentation and/or other materials provided
+       with the distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+----
+
+=== Building on POSIX platforms
+Either clone from Git or download and unpackage the tarball, then make 
+sure you have the pre-requisites installed and build following the 
+steps below from the `token2-piv-tool` directory.
+
+Please make sure to have recent versions of the following packages 
+installed on your system. 
+
+  cmake libtool libssl-dev pkg-config check libpcsclite-dev gengetopt help2man zlib-devel
+
+Help2man is used to generate the manpages.  
+Gengetopt version 2.22.6 or later is needed for command line parameter 
+handling. The 
+link:https://github.com/Yubico/token2-piv-tool/tree/master/vagrant/development[Vagrant
+VM] has all these dependencies preinstalled.
+
+Please note that these package names are debian based. Other POSIX plarforms might have
+different names. For example, `libssl-dev` can probably be replaced with `openssl-devel` and
+`libpcsclite-dev` can probably be replaced by `pcsc-lite-devel` on a Redhat platform. Also note
+that Gengetopt might not be available on all plarforms and might need to be built from source
+(See https://www.gnu.org/software/gengetopt/gengetopt.html#Installation)
+
+After installation of all dependencies, run the following:
+
+  $ cd token2-piv-tool
+  $ mkdir build; cd build
+  $ cmake ..
+  $ make
+  $ sudo make install
+
+On macos, you might need to point out homebrew openssl version when
+running pkg-config.
+
+  $ PKG_CONFIG_PATH="/usr/local/opt/openssl@1.1/lib/pkgconfig" cmake ..
+
+To statically link to OpenSSL (the `libcrypto` library), use the cmake
+option `-DOPENSSL_STATIC_LINK=ON`
+
+Don't forget you might need to be root for the last command. On Linux 
+it might be needed to update your linked libraries after install
+
+  sudo ldconfig
+
+The backend to use is decided at compile time, see the summary at the
+end of the `cmake` output.  Use `--with-backend=foo` to choose
+backend, replacing `foo` with the backend you want to use.  The backends
+available are "pcsc", "macscard" and "winscard" using the PCSC
+interface, with slightly different shared library linkage and
+header file names: "pcsc" is used under GNU-like systems, "macscard"
+under Mac OS X, and "winscard" is used under Windows.  In most
+situations, running `cmake` should automatically find the proper
+backend to use.
+
+=== Building on Windows
+
+Building on Windows requires MSBuild or Visual Studio and the MSVC compiler. It also requires
+building the binaries from the https://developers.yubico.com/token2-piv-tool/Releases/[source release] package
+and not from the source checked out from the repository on GitHub. This is because some files that are part of
+the command line shell are generated but they cannot, currently, be generated on Windows. Those files are, however,
+included in the source release package.
+
+On Windows, `getopt` is needed to read command line arguments. The easiest way to install `getopt`
+is with the https://docs.microsoft.com/en-us/cpp/build/vcpkg?view=msvc-160[`vcpkg` package manager]. The
+path to `getopt` DLL library and include file need to be specified as a command line argument to `cmake`.
+Also the path to OpenSSL needs to be specified either as a command line argument to `cmake`
+or by setting the environment variable `OPENSSL_ROOT_DIR`
+
+The command line examples bellow are for `PowerShell` and the prerequisites were installed from source (using `vcpkg`).
+
+    $ env:OPENSSL_ROOT_DIR ="PATH/TO/OPENSSL_DIR"
+    $ mkdir build; cd build
+    $ cmake -A <ARCH> -DGETOPT_LIB_DIR="PATH/TO/GETOPT_DIR/lib" -DGETOPT_INCLUDE_DIR="PATH/TO/GETOPT_DIR/include ..
+    $ cmake --build .
+
+To run the tests, `check` is used. The path to the `check` directory needs to be
+specified as a command line argument to `cmake`. Also the path to `check` binaries,
+`OpenSSL` binaries, `libt2piv.dll` and `libt2cs11.dll` need to be in the `PATH`
+
+    $ env:OPENSSL_ROOT_DIR ="PATH/TO/OPENSSL_DIR"
+    $ mkdir build; cd build
+    $ cmake -A <ARCH> -DGETOPT_LIB_DIR="PATH/TO/GETOPT_DIR/lib" -DGETOPT_INCLUDE_DIR="PATH/TO/GETOPT_DIR/include -DCHECK_PATH="PATH/TO/CHECK_DIR" ..
+    $ cmake --build .
+    $ $env:Path +=";PATH/TO//CHECK_DIR/bin;PATH/TO/OPENSSL_DIR/bin;PATH/TO/build\lib\Debug;PATH/TO/build\t2cs11\Debug"
+    $ ctest.exe -C Debug
+
+For building on 32 bits system, use `Win32` as ARCH. For building on 64 bits systems,
+use `x64` as ARCH.
+
+==== Coverage
+
+Code coverage is provided courtesy of lcov and https://github.com/RWTH-HPC/CMake-codecov[CMake-codecov]. This currently only works with `make`.
+
+Enable coverage with
+
+ $ cmake -DENABLE_COVERAGE=1 ..
+
+You can then build the project normally and run some executables (for example running the tests with `make test`).
+
+At this point coverage evaluation can be generated with gcov/lcov related targets. For example
+
+ $ make lcov
+
+will generate a single HTML report in `./lcov/html/all_targets/index.html`
+
+=== Portability
+The main development platform is Debian GNU/Linux.
+The project compiles on Windows using MSVC and the PCSC backend.
+It can also be built for Mac OS X, also using the PCSC backend.
+
+=== Example Usage
+For a list of all available options --help can be given. For more information
+on exactly what happens --verbose or --verbose=2 may be added.
+
+Generate a new ECC-P256 key on device in slot 9a, will print the public
+key on stdout:
+
+  $ token2-piv-tool -s9a -AECCP256 -agenerate
+
+Generate a certificate request with public key from stdin, will print
+the resulting request on stdout:
+
+  $ token2-piv-tool -s9a -S'/CN=foo/OU=test/O=example.com/' -averify-pin -arequest
+
+Generate a self-signed certificate with public key from stdin, will print
+the certificate, for later import, on stdout:
+
+  $ token2-piv-tool -s9a -S'/CN=bar/OU=test/O=example.com/' -averify-pin -aselfsign
+
+Import a certificate from stdin:
+
+  $ token2-piv-tool -s9a -aimport-certificate
+
+Set a random chuid, import a key and import a certificate from a PKCS12
+file, into slot 9c:
+
+  $ token2-piv-tool -s9c -itest.pfx -KPKCS12 -aset-chuid -aimport-key \
+    -aimport-cert
+
+Change the management key used for administrative authentication:
+
+  $ token2-piv-tool -aset-mgm-key
+
+Delete a certificate in slot 9a, with management key being asked for:
+
+  $ token2-piv-tool -adelete-certificate -s9a -k
+
+Show some information on certificates and other data:
+
+  $ token2-piv-tool -astatus
+
+Read out the certificate from a slot and then run a signature test:
+
+  $ token2-piv-tool -aread-cert -s9a
+  $ token2-piv-tool -averify-pin -atest-signature -s9a
+
+Import a key into slot 85 (only available on YubiKey 4 & 5) and set the
+touch policy (also only available on YubiKey 4 & 5):
+
+  $ token2-piv-tool -aimport-key -s85 --touch-policy=always -ikey.pem

@@ -1,0 +1,343 @@
+diff --git a/src/credman.c b/src/credman.c
+index 898de14..5981dae 100644
+--- a/src/credman.c
++++ b/src/credman.c
+@@ -444,7 +444,15 @@ credman_get_rk_wait(fido_dev_t *dev, const char *rp_id, fido_credman_rk_t *rk,
+ 	rp_dgst.ptr = dgst;
+ 	rp_dgst.len = sizeof(dgst);
+ 
+-	if ((r = credman_tx(dev, CMD_RK_BEGIN, &rp_dgst, pin, rp_id,
++	/*
++	 * The credentialManagement pinUvAuthToken must carry only the "cm"
++	 * permission and NO rpId: per CTAP 2.1, an rpId scopes the token to
++	 * makeCredential/getAssertion for that RP, and spec-strict
++	 * authenticators (e.g. Feitian ePass) then reject enumerateCredentials
++	 * with PIN_AUTH_INVALID (0x33). The rp_id_hash still travels in the
++	 * subcommand params (rp_dgst). Pass NULL as the token rpId.
++	 */
++	if ((r = credman_tx(dev, CMD_RK_BEGIN, &rp_dgst, pin, NULL,
+ 	    FIDO_OPT_TRUE, ms)) != FIDO_OK ||
+ 	    (r = credman_rx_rk(dev, rk, ms)) != FIDO_OK)
+ 		return (r);
+diff --git a/src/dev.c b/src/dev.c
+index e9e26e7..879de35 100644
+--- a/src/dev.c
++++ b/src/dev.c
+@@ -364,6 +364,37 @@ fido_dev_cancel(fido_dev_t *dev)
+ 	return (FIDO_OK);
+ }
+ 
++/* Token2/Feitian vendor: send a raw ISO-7816 APDU over CTAPHID_MSG (for HID-only
++ * keys that answer vendor APDUs like 80 E3 EE 80 00 on the MSG channel). Copies up
++ * to *rx_len bytes of the reply (including SW) into rx and updates *rx_len. */
++int
++fido_dev_token2_apdu(fido_dev_t *dev, const unsigned char *apdu, size_t apdu_len,
++    unsigned char *rx, size_t *rx_len)
++{
++	unsigned char *reply;
++	int ms = dev->timeout_ms;
++	int n;
++
++	if (dev == NULL || apdu == NULL || rx == NULL || rx_len == NULL)
++		return (FIDO_ERR_INVALID_ARGUMENT);
++	if ((reply = malloc(FIDO_MAXMSG)) == NULL)
++		return (FIDO_ERR_INTERNAL);
++	if (fido_tx(dev, CTAP_CMD_MSG, apdu, apdu_len, &ms) < 0) {
++		free(reply);
++		return (FIDO_ERR_TX);
++	}
++	if ((n = fido_rx(dev, CTAP_CMD_MSG, reply, FIDO_MAXMSG, &ms)) < 0) {
++		free(reply);
++		return (FIDO_ERR_RX);
++	}
++	if ((size_t)n > *rx_len)
++		n = (int)*rx_len;
++	memcpy(rx, reply, (size_t)n);
++	*rx_len = (size_t)n;
++	free(reply);
++	return (FIDO_OK);
++}
++
+ int
+ fido_dev_set_io_functions(fido_dev_t *dev, const fido_dev_io_t *io)
+ {
+diff --git a/src/export.gnu b/src/export.gnu
+index 134dcf0..04a5f9d 100644
+--- a/src/export.gnu
++++ b/src/export.gnu
+@@ -204,6 +204,7 @@
+ 		fido_dev_build;
+ 		fido_dev_cancel;
+ 		fido_dev_close;
++		fido_dev_token2_apdu;
+ 		fido_dev_enable_entattest;
+ 		fido_dev_flags;
+ 		fido_dev_force_fido2;
+diff --git a/src/export.llvm b/src/export.llvm
+index fa1a809..dde4529 100644
+--- a/src/export.llvm
++++ b/src/export.llvm
+@@ -202,6 +202,7 @@ _fido_cred_x5c_ptr
+ _fido_dev_build
+ _fido_dev_cancel
+ _fido_dev_close
++_fido_dev_token2_apdu
+ _fido_dev_enable_entattest
+ _fido_dev_flags
+ _fido_dev_force_fido2
+diff --git a/src/export.msvc b/src/export.msvc
+index 241b17f..4b716f4 100644
+--- a/src/export.msvc
++++ b/src/export.msvc
+@@ -203,6 +203,7 @@ fido_cred_x5c_ptr
+ fido_dev_build
+ fido_dev_cancel
+ fido_dev_close
++fido_dev_token2_apdu
+ fido_dev_enable_entattest
+ fido_dev_flags
+ fido_dev_force_fido2
+diff --git a/src/fido.h b/src/fido.h
+index ef1d3d3..6286b72 100644
+--- a/src/fido.h
++++ b/src/fido.h
+@@ -179,6 +179,7 @@ int fido_cred_verify_self(const fido_cred_t *);
+ int fido_dev_set_sigmask(fido_dev_t *, const fido_sigset_t *);
+ #endif
+ int fido_dev_cancel(fido_dev_t *);
++int fido_dev_token2_apdu(fido_dev_t *, const unsigned char *, size_t, unsigned char *, size_t *);
+ int fido_dev_close(fido_dev_t *);
+ int fido_dev_get_assert(fido_dev_t *, fido_assert_t *, const char *);
+ int fido_dev_get_cbor_info(fido_dev_t *, fido_cbor_info_t *);
+diff --git a/src/nfc.c b/src/nfc.c
+index 2e97d5f..f250cc0 100644
+--- a/src/nfc.c
++++ b/src/nfc.c
+@@ -14,7 +14,25 @@
+ 
+ #define TX_CHUNK_SIZE	240
+ 
+-static const uint8_t aid[] = { 0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01 };
++/*
++ * Token2 keys tunnel CTAP2 through the OTP applet over CCID (no admin rights on
++ * Windows, unlike the raw FIDO HID interface). Verified against a USBPcap of the
++ * Token2 Companion app performing a non-elevated PIN change:
++ *   SELECT F0000001 4F747001                     -> "1000"
++ *   80 C5 03 00 <Lc> <ctap_cmd> <cbor>           (getInfo/clientPIN/... tunnelled)
++ *   <- <status:00=ok> <cbor>                      (61xx chaining as usual)
++ * Standard CTAP-over-NFC would send 80 10 00 00; the Token2 tunnel replaces that
++ * INS with 80 C5 03. The applet SELECT returns its version string "1000" rather
++ * than U2F_V2/FIDO_2_0, so that value is accepted below.
++ */
++static const uint8_t aid[] = { 0xf0, 0x00, 0x00, 0x01, 0x4f, 0x74, 0x70, 0x01 };
++static const uint8_t aid_fido[] = { 0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01 };
++static const uint8_t v_token2[] = { '1', '0', '0', '0' };
++/* Per-open transport mode: 0 = unknown/standard FIDO applet (NFC), 1 = Token2 OTP
++ * tunnel (USB CCID). Set in rx_init from the SELECT version string; read by the
++ * CBOR tx to pick 80 10 (standard) vs 80 C5 03 (tunnel). libfido2 drives one
++ * device per thread, so a thread-local is sufficient and avoids ABI changes. */
++static TLS int token2_tunnel_mode = 0;
+ static const uint8_t v_u2f[] = { 'U', '2', 'F', '_', 'V', '2' };
+ static const uint8_t v_fido[] = { 'F', 'I', 'D', 'O', '_', '2', '_', '0' };
+ 
+@@ -101,19 +119,31 @@ fido_nfc_tx(fido_dev_t *d, uint8_t cmd, const unsigned char *buf, size_t count)
+ 	int ok = -1;
+ 
+ 	switch (cmd) {
+-	case CTAP_CMD_INIT: /* select */
++	case CTAP_CMD_INIT: /* select — try the Token2 OTP tunnel AID first */
++		token2_tunnel_mode = 1;
+ 		if ((apdu = iso7816_new(0, 0xa4, 0x04, sizeof(aid))) == NULL ||
+ 		    iso7816_add(apdu, aid, sizeof(aid)) < 0) {
+ 			fido_log_debug("%s: iso7816", __func__);
+ 			goto fail;
+ 		}
+ 		break;
+-	case CTAP_CMD_CBOR: /* wrap cbor */
+-		if (count > UINT16_MAX || (apdu = iso7816_new(0x80, 0x10, 0x00,
+-		    (uint16_t)count)) == NULL ||
+-		    iso7816_add(apdu, buf, count) < 0) {
+-			fido_log_debug("%s: iso7816", __func__);
+-			goto fail;
++	case CTAP_CMD_CBOR:
++		if (token2_tunnel_mode) {
++			/* Token2 OTP-applet tunnel (USB CCID): wrap in 80 C5 03 */
++			if (count > UINT16_MAX || (apdu = iso7816_new(0x80, 0xc5, 0x03,
++			    (uint16_t)count)) == NULL ||
++			    iso7816_add(apdu, buf, count) < 0) {
++				fido_log_debug("%s: iso7816", __func__);
++				goto fail;
++			}
++		} else {
++			/* standard CTAP-over-ISO7816 (NFC): 80 10 */
++			if (count > UINT16_MAX || (apdu = iso7816_new(0x80, 0x10, 0x00,
++			    (uint16_t)count)) == NULL ||
++			    iso7816_add(apdu, buf, count) < 0) {
++				fido_log_debug("%s: iso7816", __func__);
++				goto fail;
++			}
+ 		}
+ 		break;
+ 	case CTAP_CMD_MSG: /* already an apdu */
+@@ -157,10 +187,44 @@ rx_init(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
+ 
+ 	memset(attr, 0, sizeof(*attr));
+ 
+-	if ((n = d->io.read(d->io_handle, f, sizeof(f), ms)) < 2 ||
+-	    (f[n - 2] << 8 | f[n - 1]) != SW_NO_ERROR) {
+-		fido_log_debug("%s: read", __func__);
+-		return -1;
++	n = d->io.read(d->io_handle, f, sizeof(f), ms);
++	int is_token2 = (n >= 2 && (f[n-2] << 8 | f[n-1]) == SW_NO_ERROR &&
++	    n - 2 == (int)sizeof(v_token2) && memcmp(f, v_token2, sizeof(v_token2)) == 0);
++	if (is_token2) {
++		/* The OTP applet answered. The 80 C5 03 CTAP tunnel works over USB CCID
++		 * but NOT over NFC (the applet returns 6A86 there). Probe whether the
++		 * STANDARD FIDO applet is selectable on this interface: if it is (NFC),
++		 * use the standard 80 10 path; if not (USB CCID, FIDO applet not exposed),
++		 * keep the OTP tunnel. */
++		uint8_t sel[6 + sizeof(aid_fido)];
++		uint8_t g[64];
++		int m;
++		sel[0] = 0x00; sel[1] = 0xa4; sel[2] = 0x04; sel[3] = 0x00;
++		sel[4] = (uint8_t)sizeof(aid_fido);
++		memcpy(sel + 5, aid_fido, sizeof(aid_fido));
++		sel[5 + sizeof(aid_fido)] = 0x00; /* Le — required non-elevated over NFC */
++		if (d->io.write(d->io_handle, sel, sizeof(sel)) >= 0 &&
++		    (m = d->io.read(d->io_handle, g, sizeof(g), ms)) >= 2 &&
++		    (g[m - 2] << 8 | g[m - 1]) == SW_NO_ERROR) {
++			/* standard FIDO applet present -> use it (NFC) */
++			token2_tunnel_mode = 0;
++			memcpy(f, g, (size_t)m); n = m;
++		} /* else: keep tunnel mode; f/n still hold the "1000" response */
++	} else {
++		/* Not the Token2 OTP applet: retry the SELECT with the standard FIDO AID. */
++		uint8_t sel[6 + sizeof(aid_fido)];
++		sel[0] = 0x00; sel[1] = 0xa4; sel[2] = 0x04; sel[3] = 0x00;
++		sel[4] = (uint8_t)sizeof(aid_fido);
++		memcpy(sel + 5, aid_fido, sizeof(aid_fido));
++		sel[5 + sizeof(aid_fido)] = 0x00; /* Le — required non-elevated over NFC */
++		if (d->io.write(d->io_handle, sel, sizeof(sel)) >= 0 &&
++		    (n = d->io.read(d->io_handle, f, sizeof(f), ms)) >= 2 &&
++		    (f[n - 2] << 8 | f[n - 1]) == SW_NO_ERROR) {
++			token2_tunnel_mode = 0;
++		} else {
++			fido_log_debug("%s: no fido/otp applet", __func__);
++			return -1;
++		}
+ 	}
+ 
+ 	n -= 2;
+@@ -169,6 +233,8 @@ rx_init(fido_dev_t *d, unsigned char *buf, size_t count, int ms)
+ 		attr->flags = FIDO_CAP_CBOR;
+ 	else if (n == sizeof(v_fido) && memcmp(f, v_fido, sizeof(v_fido)) == 0)
+ 		attr->flags = FIDO_CAP_CBOR | FIDO_CAP_NMSG;
++	else if (n == sizeof(v_token2) && memcmp(f, v_token2, sizeof(v_token2)) == 0)
++		attr->flags = FIDO_CAP_CBOR | FIDO_CAP_NMSG; /* Token2 CTAP tunnel */
+ 	else {
+ 		fido_log_debug("%s: unknown version string", __func__);
+ #ifdef FIDO_FUZZ
+@@ -203,14 +269,18 @@ tx_get_response(fido_dev_t *d, uint8_t count)
+ static int
+ rx_apdu(fido_dev_t *d, uint8_t sw[2], unsigned char **buf, size_t *count, int *ms)
+ {
+-	uint8_t f[256 + 2];
++	const size_t fsiz = 4096 + 2; /* T=0 GET RESPONSE can reassemble a large reply */
++	uint8_t *f;
+ 	struct timespec ts;
+ 	int n, ok = -1;
+ 
++	if ((f = calloc(1, fsiz)) == NULL)
++		return -1;
++
+ 	if (fido_time_now(&ts) != 0)
+ 		goto fail;
+ 
+-	if ((n = d->io.read(d->io_handle, f, sizeof(f), *ms)) < 2) {
++	if ((n = d->io.read(d->io_handle, f, fsiz, *ms)) < 2) {
+ 		fido_log_debug("%s: read", __func__);
+ 		goto fail;
+ 	}
+@@ -227,7 +297,8 @@ rx_apdu(fido_dev_t *d, uint8_t sw[2], unsigned char **buf, size_t *count, int *m
+ 
+ 	ok = 0;
+ fail:
+-	explicit_bzero(f, sizeof(f));
++	explicit_bzero(f, fsiz);
++	free(f);
+ 
+ 	return ok;
+ }
+diff --git a/src/pcsc.c b/src/pcsc.c
+index d7bd6c6..21defd8 100644
+--- a/src/pcsc.c
++++ b/src/pcsc.c
+@@ -36,7 +36,7 @@ struct pcsc {
+ 	SCARDCONTEXT     ctx;
+ 	SCARDHANDLE      h;
+ 	SCARD_IO_REQUEST req;
+-	uint8_t          rx_buf[APDULEN];
++	uint8_t          rx_buf[4096]; /* holds a full T=0 61xx-chained CTAP response */
+ 	size_t           rx_len;
+ };
+ 
+@@ -348,6 +348,59 @@ fido_pcsc_write(void *handle, const unsigned char *buf, size_t len)
+ 	}
+ 	dev->rx_len = (size_t)n;
+ 
++	/*
++	 * T=0 / contact readers answer with 61xx ("SW1=0x61, more data") and
++	 * require a GET RESPONSE to fetch the payload; some answer 6Cxx ("wrong
++	 * Le") and want the command resent with the given Le. libfido2's PC/SC
++	 * backend originally assumed a single T=1 exchange, so on a T=0 reader
++	 * the applet SELECT returned only "61 04" and the CTAP layer saw an empty
++	 * payload -> FIDO_ERR_RX. Chain these here so the response is complete.
++	 */
++	for (;;) {
++		if (dev->rx_len == 2 && dev->rx_buf[0] == 0x6c) {
++			/* wrong Le: resend the same command with Le = rx_buf[1] */
++			unsigned char cmd2[APDULEN];
++			size_t clen = len;
++			if (clen == 0 || clen + 1 > sizeof(cmd2))
++				break;
++			memcpy(cmd2, buf, clen);
++			cmd2[clen++] = dev->rx_buf[1];
++			n = (DWORD)sizeof(dev->rx_buf);
++			explicit_bzero(dev->rx_buf, sizeof(dev->rx_buf));
++			if (SCardTransmit(dev->h, &dev->req, cmd2, (DWORD)clen,
++			    NULL, dev->rx_buf, &n) != SCARD_S_SUCCESS) {
++				explicit_bzero(dev->rx_buf, sizeof(dev->rx_buf));
++				return -1;
++			}
++			dev->rx_len = (size_t)n;
++			continue;
++		}
++		if (dev->rx_len >= 2 && dev->rx_buf[dev->rx_len - 2] == 0x61) {
++			/* 61xx: GET RESPONSE for rx_buf[rx_len-1] more bytes */
++			unsigned char gr[5] = { 0x00, 0xc0, 0x00, 0x00,
++			    dev->rx_buf[dev->rx_len - 1] };
++			unsigned char more[APDULEN];
++			DWORD mlen = (DWORD)sizeof(more);
++			size_t keep;
++			if (SCardTransmit(dev->h, &dev->req, gr, sizeof(gr),
++			    NULL, more, &mlen) != SCARD_S_SUCCESS || mlen < 2) {
++				explicit_bzero(dev->rx_buf, sizeof(dev->rx_buf));
++				return -1;
++			}
++			/* replace the trailing 61xx SW with the new payload+SW */
++			keep = dev->rx_len - 2;
++			if (keep + mlen > sizeof(dev->rx_buf)) {
++				explicit_bzero(dev->rx_buf, sizeof(dev->rx_buf));
++				return -1;
++			}
++			memcpy(dev->rx_buf + keep, more, mlen);
++			dev->rx_len = keep + mlen;
++			explicit_bzero(more, sizeof(more));
++			continue;
++		}
++		break;
++	}
++
+ 	fido_log_xxd(dev->rx_buf, dev->rx_len, "%s: read", __func__);
+ 
+ 	return (int)len;

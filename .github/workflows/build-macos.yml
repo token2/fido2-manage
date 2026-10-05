@@ -1,0 +1,174 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:   # manual only — run from the Actions tab
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System dependencies
+        run: |
+          brew install openssl@3 cmake libcbor gengetopt check || true
+          # PC/SC is provided by the macOS system framework; no extra install needed.
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: token2-piv-gui/src-tauri
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked || true
+
+      - name: Build libt2piv + GUI
+        run: |
+          set -e
+          export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+          cmake -S token2-piv-tool -B /tmp/t2build -DCMAKE_BUILD_TYPE=Release -DGENERATE_MAN_PAGES=OFF -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
+          cmake --build /tmp/t2build --target t2piv_shared -j"$(sysctl -n hw.ncpu)"
+          cmake --build /tmp/t2build -j"$(sysctl -n hw.ncpu)" || true   # CLI tools too
+          git clone --depth 1 --branch 1.15.0 https://github.com/Yubico/libfido2 /tmp/libfido2
+          ( cd /tmp/libfido2 && git apply --ignore-whitespace "$GITHUB_WORKSPACE/libfido2-token2.patch" )
+          cmake -S /tmp/libfido2 -B /tmp/libfido2/build -DBUILD_TOOLS=OFF -DBUILD_EXAMPLES=OFF -DUSE_PCSC=ON -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
+          cmake --build /tmp/libfido2/build --target fido2_shared -j"$(sysctl -n hw.ncpu)"
+          export T2PIV_LIB_DIR=/tmp/t2build/lib FIDO2_LIB_DIR=/tmp/libfido2/build/src
+          cd token2-piv-gui/src-tauri
+          mkdir -p libs
+          cp /tmp/t2build/lib/libt2piv.dylib libs/ 2>/dev/null || cp /tmp/t2build/lib/libt2piv.*dylib libs/ 2>/dev/null || true
+          cp /tmp/libfido2/build/src/libfido2.dylib libs/ 2>/dev/null || cp /tmp/libfido2/build/src/libfido2.*dylib libs/ 2>/dev/null || true
+          # ensure the resource glob always matches something
+          touch libs/.keep
+          cargo build --release --bin token2-key-manager --bin fido2-manage
+
+      - name: Stage portable folder
+        if: always()
+        run: |
+          P="$RUNNER_TEMP/artifacts/token2-key-manager"
+          mkdir -p "$P"
+          REL=token2-piv-gui/src-tauri/target/release
+          cp "$REL/token2-key-manager" "$P/" 2>/dev/null || true
+          cp "$REL/fido2-manage" "$P/" 2>/dev/null || true
+          # our own shared libs next to the binaries (starting point)
+          cp /tmp/t2build/lib/libt2piv*.dylib "$P/" 2>/dev/null || true
+          cp /tmp/libfido2/build/src/libfido2*.dylib "$P/" 2>/dev/null || true
+          # PIV CLI tools (prefix with token2- like the other platforms)
+          for f in /tmp/t2build/tool/*piv-tool; do [ -f "$f" ] && cp "$f" "$P/token2-piv-tool"; done
+          chmod +x "$P/"* 2>/dev/null || true
+
+          # ---- recursively bundle EVERY non-system dependency and rewrite paths ----
+          # Walk each Mach-O, copy any dependency that lives outside /usr/lib and
+          # /System (i.e. Homebrew libs like libcbor, libcrypto) into $P, then
+          # rewrite that reference to @loader_path. Repeat until nothing new copies.
+          is_system() { case "$1" in /usr/lib/*|/System/*) return 0;; *) return 1;; esac; }
+          # candidate search dirs for resolving '*'-globbed or @rpath deps
+          SEARCH="/opt/homebrew/lib /opt/homebrew/opt/*/lib /usr/local/lib /tmp/t2build/lib /tmp/libfido2/build/src"
+          resolve() { # $1 = dependency path as recorded; echo a real file or nothing
+            local d="$1" b; b="$(basename "$d")"
+            if [ -f "$d" ]; then echo "$d"; return; fi
+            for s in $SEARCH; do [ -f "$s/$b" ] && { echo "$s/$b"; return; }; done
+            # last resort: find by name under homebrew
+            find /opt/homebrew /usr/local -name "$b" -type f 2>/dev/null | head -1
+          }
+          changed=1
+          while [ "$changed" = 1 ]; do
+            changed=0
+            for bin in "$P"/*; do
+              case "$bin" in *.dylib) ;; *) file "$bin" 2>/dev/null | grep -q Mach-O || continue;; esac
+              # list this binary's dependencies
+              otool -L "$bin" 2>/dev/null | tail -n +2 | awk '{print $1}' | while read -r dep; do
+                [ -n "$dep" ] || continue
+                case "$dep" in @*) continue;; esac          # already @loader_path/@rpath
+                is_system "$dep" && continue                # leave system libs alone
+                b="$(basename "$dep")"
+                if [ ! -f "$P/$b" ]; then
+                  src="$(resolve "$dep")"
+                  if [ -n "$src" ]; then cp -f "$src" "$P/$b"; chmod +w "$P/$b"; echo "copied $b"; fi
+                fi
+              done
+              # rewrite dependency references to @loader_path/<name>:
+              #  - absolute non-system paths (Homebrew etc.)
+              #  - @rpath/@executable_path/@loader_path forms, WHEN the basename is a
+              #    dylib we bundled next to the binary (so @rpath/libt2piv -> @loader_path)
+              otool -L "$bin" 2>/dev/null | tail -n +2 | awk '{print $1}' | while read -r dep; do
+                [ -n "$dep" ] || continue
+                b="$(basename "$dep")"
+                case "$dep" in
+                  @loader_path/*) continue;;                       # already correct
+                  @*) [ -f "$P/$b" ] && install_name_tool -change "$dep" "@loader_path/$b" "$bin" 2>/dev/null || true;;
+                  /usr/lib/*|/System/*) : ;;                       # leave system libs
+                  *) install_name_tool -change "$dep" "@loader_path/$b" "$bin" 2>/dev/null || true;;
+                esac
+              done
+              # make sure an LC_RPATH of @loader_path exists too (harmless safety net)
+              install_name_tool -add_rpath "@loader_path" "$bin" 2>/dev/null || true
+            done
+            # did we copy anything new this pass? (compare file count)
+            newcount=$(ls -1 "$P"/*.dylib 2>/dev/null | wc -l)
+            [ "${newcount:-0}" != "${prevcount:-0}" ] && { changed=1; prevcount=$newcount; }
+          done
+          # set each dylib's own install-name (LC_ID_DYLIB) to @loader_path/<name>
+          for lib in "$P"/*.dylib; do
+            [ -f "$lib" ] || continue
+            install_name_tool -id "@loader_path/$(basename "$lib")" "$lib" 2>/dev/null || true
+          done
+          echo "---- final dependency check ----"
+          for bin in "$P"/*; do
+            case "$bin" in *.dylib) ;; *) file "$bin" 2>/dev/null | grep -q Mach-O || continue;; esac
+            echo "## $(basename "$bin")"; otool -L "$bin" 2>/dev/null | tail -n +2 | awk '{print "   "$1}'
+          done
+          ls -la "$P" || true
+
+      - name: Build .app + DMG
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/Token2 Key Manager.app"
+          MACOS="$APP/Contents/MacOS"
+          RES="$APP/Contents/Resources"
+          mkdir -p "$MACOS" "$RES"
+          # everything in one place: GUI + CLI tools + dylibs together in Contents/MacOS
+          cp "$RUNNER_TEMP/artifacts/token2-key-manager/"* "$MACOS/" 2>/dev/null || true
+          chmod +x "$MACOS/"* 2>/dev/null || true
+          # icon (convert the png to icns if iconutil is available; else copy png)
+          ICON_PNG=token2-piv-gui/src-tauri/icons/icon.png
+          if [ -f "$ICON_PNG" ]; then
+            ICONSET="$RUNNER_TEMP/icon.iconset"; mkdir -p "$ICONSET"
+            for sz in 16 32 64 128 256 512; do
+              sips -z $sz $sz "$ICON_PNG" --out "$ICONSET/icon_${sz}x${sz}.png" >/dev/null 2>&1 || true
+              d=$((sz*2)); sips -z $d $d "$ICON_PNG" --out "$ICONSET/icon_${sz}x${sz}@2x.png" >/dev/null 2>&1 || true
+            done
+            iconutil -c icns "$ICONSET" -o "$RES/AppIcon.icns" 2>/dev/null || cp "$ICON_PNG" "$RES/AppIcon.png"
+          fi
+          # Info.plist
+          cat > "$APP/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Token2 Key Manager</string>
+            <key>CFBundleDisplayName</key><string>Token2 Key Manager</string>
+            <key>CFBundleIdentifier</key><string>com.token2.keymanager</string>
+            <key>CFBundleVersion</key><string>0.1.0</string>
+            <key>CFBundleShortVersionString</key><string>0.1.0</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleExecutable</key><string>token2-key-manager</string>
+            <key>CFBundleIconFile</key><string>AppIcon</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          EOF
+          # build the DMG: a window containing the .app and an Applications symlink
+          STAGE="$RUNNER_TEMP/dmgroot"; mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications" || true
+          hdiutil create -volname "Token2 Key Manager" -srcfolder "$STAGE" -ov -format UDZO \
+            "$RUNNER_TEMP/artifacts/Token2-Key-Manager.dmg"
+          ls -la "$RUNNER_TEMP/artifacts/" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: token2-key-manager-macos
+          path: ${{ runner.temp }}/artifacts/**
+          if-no-files-found: warn

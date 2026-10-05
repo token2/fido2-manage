@@ -1,0 +1,33 @@
+== Signing
+    $ token2-piv-tool -a verify-pin --sign -s <slot> [ -H <hash algorithm> -A <key algorithm> -P <PIN code> -i <input data file> -o <signature file> ]
+
+=== Description
+Signs input data
+
+The signing operation requires verifying the PIN code or the fingerprint if the Token2 key supports Bio verification.
+Use `-a verify-pin` to verify the PIN and `-a verify-bio` for fingerprint verification.
+
+=== Parameters
+
+|===================================
+|Parameter         | Required | Optional | Description | Possible values | Default value
+|sign              | X | | Sign data | |
+
+|-s, --slot        | X | | What key slot to operate on | 9a, 9c, 9d, 9e, 82, 83, 84, 85, 86, 87, 88, 89,
+                                                          8a, 8b, 8c, 8d, 8e, 8f, 90, 91, 92, 93, 94, 95, f9 |
+|-A, --algorithm   | | X | Signing key algorithm | RSA1024, RSA2048, RSA3072 (Requires Token2 key 5.7 or higher), RSA4096 (Requires Token2 key 5.7 or higher), ECCP256, ECCP384, ED25519 (Requires Token2 key 5.7 or higher) | RSA2048
+|-H, --hash        | | X | Hash to use for signatures | SHA1, SHA256, SHA384, SHA512 | SHA256
+|-P, --pin         | | X | Pin/puk code for verification, if omitted pin/puk will be asked for | |
+|-i, --input       | | X | Filename to use as input. If left out, input will be read from Stdin | None or file name | Stdin
+|-o, --output      | | X | Filename to use as output. If left out, output will be printed to Stdout | None or file name | Stdout
+|===================================
+
+=== Examples
+
+    $ token2-piv-tool -a verify-pin --sign -s 9c -H SHA512 -A RSA2048 -i data.txt -o data.sig
+    Enter PIN:
+    Successfully verified PIN.
+    Signature successful!
+
+    $ openssl dgst -sha512 -verify pubkey.pem -signature data.sig data.txt
+    Verified OK

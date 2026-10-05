@@ -1,0 +1,86 @@
+== Using Attestation
+
+=== Introduction
+
+This feature is only available in Token2 key 4.3 and above.
+
+A description of how PIV attestation can be used is found at https://developers.yubico.com/PIV/Introduction/PIV_attestation.html
+
+
+=== Usage
+
+PIV attestation provides information on a key in a given PIV slot, information that is signed using the key stored in slot f9 of the Token2 key. 
+
+
+PIV slot f9 comes pre-loaded from the factory with a key and certificate signed by Yubico's root PIV Certificate Authority (CA). This key and certificate can be customized. 
+
+
+[NOTE]
+====
+Once the Yubico factory-issued key or certificate is overwritten, they cannot be restored. The attestation key and certificate in slot f9 are not modified by a reset of the device.
+====
+
+
+After a key is generated in a given PIV slot, an attestation can be generated for that PIV slot. 
+
+The output of the attest command is a PEM encoded certificate, signed by the key in slot f9.
+
+
+
+=== Verification
+
+[IMPORTANT]
+====
+While OpenSSL, as demonstrated below, can be used as a method to test the concept of attestation verification, verification should be properly evaluated for production purposes. 
+====
+
+[NOTE]
+====
+These commands only apply when the signing key and certificate in PIV slot f9 have not been customized or overwritten.
+====
+
+[NOTE]
+====
+The token2-piv-tool attest action will fail if there is no key in the slot under attestation, or if the key in the slot under attestation was imported.
+====
+
+To verify an attestation statement perform the following steps:
+
+1. Generate an attestation for the key in the PIV slot. The following command generates an attestation for slot 9a:
+
+  $ token2-piv-tool --action=attest --slot=9a --out Slot9Aattestation.pem
+
+2. Extract the intermediate signing certificate from slot f9 on the Token2 key:
+
+  $ token2-piv-tool --action=read-certificate --slot=f9 --out SlotF9Intermediate.pem
+
+3. Retrieve the root Yubico PIV CA certificate and place it in a file. Note that Yubico has updated the root CA in 2025, so Token2 keys with firmware version 5.7.4 and later will be signed by the new root CA. The relevant CA can be downloaded with the command line as follows:
+a. For Token2 keys with firmware version 5.7.4 or later:
+
+  $ curl https://developers.yubico.com/PKI/yubico-ca-1.pem -o TrustedCAcerts.pem
+
+b. For Token2 keys with firmware version 5.7.3 or earlier:
+
+  $ curl https://developers.yubico.com/PKI/yubico-piv-ca-1.pem -o TrustedCAcerts.pem
+
+
+4. For Token2 keys with firmware version 5.7.4 or later, retrieve the intermediate certificates and place them in a file:
+
+    $ curl https://developers.yubico.com/PKI/yubico-intermediate.pem -o AllIntermediateCerts.pem
+
+5. Verify the attestation cryptographically. A demonstration of this capability using OpenSSL is below:
+
+[NOTE]
+====
+The OpenSSL command below does not work with OpenSSL 1.1.0  when used with YubiKey 4 series products. To verify certificate chains for such devices, see link:https://support.yubico.com/support/solutions/articles/15000013406-piv-attestation-verification-fails-with-openssl-1-1-0[PIV Attestation Verification Fails with OpenSSL 1.1.0].
+====
+
+a. For Token2 keys with firmware version 5.7.4 or later:
+
+  $ openssl verify -CAfile TrustedCAcerts.pem -untrusted SlotF9Intermediate.pem -untrusted AllIntermediateCerts.pem Slot9Aattestation.pem
+  Slot9Aattestation.pem: OK
+
+b. For Token2 keys with firmware version 5.7.3 or earlier:
+
+  $ openssl verify -CAfile TrustedCAcerts.pem -untrusted SlotF9Intermediate.pem Slot9Aattestation.pem
+  Slot9Aattestation.pem: OK

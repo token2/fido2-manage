@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Token2 Key Manager",
+  "mainBinaryName": "token2-key-manager",
+  "version": "0.1.0",
+  "identifier": "com.token2.pivmanager",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Token2 Key Manager",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": [],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "resources": [
+      "libs/*"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libpcsclite1",
+          "libssl3"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,251 @@
+--- a/lib/ykpiv.c	2026-09-18 17:53:14.242040204 +0000
++++ b/lib/ykpiv.c	2026-09-18 17:43:05.061747943 +0000
+@@ -381,6 +381,7 @@
+   }
+ 
+   state->serial = 0;
++  state->serial_str[0] = 0;
+   state->ver.major = 0;
+   state->ver.minor = 0;
+   state->ver.patch = 0;
+@@ -909,6 +910,8 @@
+       }
+       state->card = 0;
+       state->serial = 0;
++      state->serial_str[0] = 0;
++  state->serial_str[0] = 0;
+       state->ver.major = 0;
+       state->ver.minor = 0;
+       state->ver.patch = 0;
+@@ -924,6 +927,8 @@
+       }
+       state->card = 0;
+       state->serial = 0;
++      state->serial_str[0] = 0;
++  state->serial_str[0] = 0;
+       state->ver.major = 0;
+       state->ver.minor = 0;
+       state->ver.patch = 0;
+@@ -1119,6 +1124,7 @@
+   if(retries) {
+     uint32_t serial = state->serial;
+     state->serial = 0;
++  state->serial_str[0] = 0;
+     state->ver.major = 0;
+     state->ver.minor = 0;
+     state->ver.patch = 0;
+@@ -2009,19 +2015,107 @@
+     return YKPIV_SIZE_ERROR;
+   }
+ 
+-  state->serial = data[0];
+-  state->serial <<= 8;
+-  state->serial += data[1];
+-  state->serial <<= 8;
+-  state->serial += data[2];
+-  state->serial <<= 8;
+-  state->serial += data[3];
++  /* Token2: the PIV GET SERIAL reply is the 8-digit serial in packed BCD
++   * (e.g. 39 53 96 12 -> 39539612). Decode it as such when every nibble is a
++   * decimal digit; otherwise fall back to the big-endian binary reading. */
++  {
++    int i, bcd = 1;
++    uint32_t v = 0;
++    for (i = 0; i < 4; i++) {
++      uint8_t hi = data[i] >> 4, lo = data[i] & 0x0f;
++      if (hi > 9 || lo > 9) { bcd = 0; break; }
++      v = v * 100 + hi * 10 + lo;
++    }
++    if (bcd) {
++      state->serial = v;
++    } else {
++      state->serial = ((uint32_t)data[0] << 24) | ((uint32_t)data[1] << 16) | ((uint32_t)data[2] << 8) | data[3];
++    }
++  }
+ 
+ Cleanup:
+ 
+   return res;
+ }
+ 
++
++/* Token2 OTP applet: full serial number over CCID */
++static const uint8_t t2_otp_aid[] = {0xf0, 0x00, 0x00, 0x01, 0x4f, 0x74, 0x70, 0x01};
++
++static ykpiv_rc _ykpiv_get_serial_str(ykpiv_state *state) {
++  ykpiv_rc res = YKPIV_OK;
++  uint8_t select_templ[] = {0x00, YKPIV_INS_SELECT_APPLICATION, 0x04, 0x00};
++  uint8_t temp[256] = {0};
++  unsigned long recv_len = sizeof(temp);
++  int sw = 0;
++  /* 80 33 00 00 | extended Lc 00 00 12 | D1 10 + 16 zero bytes */
++  uint8_t get_info[7 + 18] = {0x80, 0x33, 0x00, 0x00, 0x00, 0x00, 0x12, 0xd1, 0x10};
++  uint8_t resp[261] = {0};
++  pcsc_word resp_len = sizeof(resp);
++
++  if (!state) return YKPIV_ARGUMENT_ERROR;
++  if (state->serial_str[0]) return YKPIV_OK;
++
++  if ((res = _ykpiv_transfer_data(state, select_templ, t2_otp_aid, sizeof(t2_otp_aid), temp, &recv_len, &sw)) != YKPIV_OK ||
++      ykpiv_translate_sw_ex(__FUNCTION__, sw) != YKPIV_OK) {
++    DBG("OTP applet not available, no full serial number");
++    res = YKPIV_NOT_SUPPORTED;
++    goto Reselect;
++  }
++
++  if ((res = _ykpiv_transmit(state, get_info, sizeof(get_info), resp, &resp_len, &sw)) != YKPIV_OK) {
++    goto Reselect;
++  }
++  if ((sw >> 8) == 0x61) {
++    /* response pending: GET RESPONSE */
++    uint8_t get_resp[] = {0x00, 0xc0, 0x00, 0x00, (uint8_t)(sw & 0xff)};
++    resp_len = sizeof(resp);
++    if ((res = _ykpiv_transmit(state, get_resp, sizeof(get_resp), resp, &resp_len, &sw)) != YKPIV_OK) {
++      goto Reselect;
++    }
++  }
++  if ((res = ykpiv_translate_sw_ex(__FUNCTION__, sw)) != YKPIV_OK) {
++    DBG("OTP applet GET_INFO failed");
++    goto Reselect;
++  }
++  /* resp: D1 | len | ASCII serial (status word already split off by _ykpiv_transmit) */
++  if (resp_len < 3 || resp[0] != 0xd1 || resp[1] == 0 || (unsigned)resp[1] + 2 > resp_len ||
++      resp[1] >= sizeof(state->serial_str)) {
++    DBG("OTP applet GET_INFO: unexpected response");
++    res = YKPIV_PARSE_ERROR;
++    goto Reselect;
++  }
++  memcpy(state->serial_str, resp + 2, resp[1]);
++  state->serial_str[resp[1]] = 0;
++
++Reselect:
++  recv_len = sizeof(temp);
++  {
++    ykpiv_rc r2 = _ykpiv_transfer_data(state, select_templ, piv_aid, sizeof(piv_aid), temp, &recv_len, &sw);
++    if (r2 != YKPIV_OK || ykpiv_translate_sw_ex(__FUNCTION__, sw) != YKPIV_OK) {
++      DBG("Failed re-selecting piv application");
++      if (res == YKPIV_OK) res = r2 != YKPIV_OK ? r2 : YKPIV_GENERIC_ERROR;
++    }
++  }
++  return res;
++}
++
++ykpiv_rc ykpiv_get_serial_str(ykpiv_state *state, char *buf, size_t len) {
++  ykpiv_rc res;
++  if (!state || !buf || len == 0) return YKPIV_ARGUMENT_ERROR;
++  uint8_t scp11 = state->scp11_state.security_level;
++  if ((res = _ykpiv_begin_transaction(state)) != YKPIV_OK) return res;
++  if ((res = _ykpiv_ensure_application_selected(state, scp11)) != YKPIV_OK) goto Cleanup;
++  res = _ykpiv_get_serial_str(state);
++  if (res == YKPIV_OK) {
++    if (strlen(state->serial_str) >= len) { res = YKPIV_SIZE_ERROR; goto Cleanup; }
++    strcpy(buf, state->serial_str);
++  }
++Cleanup:
++  _ykpiv_end_transaction(state);
++  return res;
++}
++
+ ykpiv_rc ykpiv_get_serial(ykpiv_state *state, uint32_t *p_serial) {
+   ykpiv_rc res = YKPIV_OK;
+ 
+--- a/lib/ykpiv.h	2026-09-17 16:18:26.717547951 +0000
++++ b/lib/ykpiv.h	2026-09-18 17:42:45.079486181 +0000
+@@ -223,6 +223,21 @@
+    */
+   ykpiv_rc ykpiv_get_serial(ykpiv_state *state, uint32_t* p_serial);
+ 
++  /**
++   * Get the full device serial number as printed on the key.
++   *
++   * Token2 keys expose the complete serial through the OTP applet (read over
++   * the same CCID session); the PIV applet only carries the last 8 digits,
++   * which ykpiv_get_serial() returns numerically. Returns YKPIV_NOT_SUPPORTED
++   * if the applet is not present.
++   *
++   * @param state State handle from ykpiv_init()
++   * @param buf   [out] NUL-terminated ASCII serial
++   * @param len   Size of buf (32 is enough)
++   * @return Error code
++   */
++  ykpiv_rc ykpiv_get_serial_str(ykpiv_state *state, char *buf, size_t len);
++
+ ////////////////////////////////////////////////////////////////////////////////
+ ////////////////////////////////////////////////////////////////////////////////
+ ////////////////////////////////////////////////////////////////////////////////
+--- a/lib/internal.h	2026-09-17 16:18:26.716701751 +0000
++++ b/lib/internal.h	2026-09-18 17:42:45.078885323 +0000
+@@ -173,6 +173,7 @@
+   uint32_t model;
+   ykpiv_version_t ver;
+   uint32_t serial;
++  char serial_str[32];   /* Token2: full serial from the OTP applet (ASCII digits) */
+   ykpiv_scp11_state scp11_state;
+ };
+ 
+--- a/tool/token2-piv-tool.c	2026-09-18 17:53:14.260972974 +0000
++++ b/tool/token2-piv-tool.c	2026-09-18 17:42:45.080578514 +0000
+@@ -2058,10 +2058,15 @@
+   }
+ 
+   fprintf(output_file, "Serial Number:\t");
+-  if (ykpiv_get_serial(state, &serial) != YKPIV_OK) {
+-    fprintf(output_file, "No data available\n");
+-  } else {
+-    fprintf(output_file, "%u\n", serial);
++  {
++    char serial_str[32] = {0};
++    if (ykpiv_get_serial_str(state, serial_str, sizeof(serial_str)) == YKPIV_OK) {
++      fprintf(output_file, "%s\n", serial_str);
++    } else if (ykpiv_get_serial(state, &serial) != YKPIV_OK) {
++      fprintf(output_file, "No data available\n");
++    } else {
++      fprintf(output_file, "%u\n", serial);
++    }
+   }
+ 
+   fprintf(output_file, "CHUID:\t");
+--- a/ykcs11/token.c	2026-09-18 17:53:14.243249167 +0000
++++ b/ykcs11/token.c	2026-09-18 17:42:45.080701783 +0000
+@@ -147,14 +147,22 @@
+   return CKR_OK;
+ }
+ 
++static ykpiv_rc token_serial_text(ykpiv_state *state, char *out, size_t out_len) {
++  uint32_t serial = 0;
++  if (ykpiv_get_serial_str(state, out, out_len) == YKPIV_OK) return YKPIV_OK;
++  ykpiv_rc rc = ykpiv_get_serial(state, &serial);
++  snprintf(out, out_len, "%u", serial);
++  return rc;
++}
++
+ CK_RV get_token_serial(ykpiv_state *state, CK_CHAR_PTR str, CK_ULONG len) {
+ 
+-  uint32_t serial = 0;
++  char serial[32] = {0};
+   char buf[64] = {0};
+ 
+-  ykpiv_rc rc = ykpiv_get_serial(state, &serial);
++  ykpiv_rc rc = token_serial_text(state, serial, sizeof(serial));
+ 
+-  int actual = snprintf(buf, sizeof(buf), "%u", serial);
++  int actual = snprintf(buf, sizeof(buf), "%s", serial);
+ 
+   if(actual < 0)
+     return CKR_FUNCTION_FAILED;
+@@ -169,12 +177,12 @@
+ 
+ CK_RV get_token_label(ykpiv_state *state, CK_CHAR_PTR str, CK_ULONG len) {
+ 
+-  uint32_t serial = 0;
++  char serial[32] = {0};
+   char buf[64] = {0};
+ 
+-  ykpiv_rc rc = ykpiv_get_serial(state, &serial);
++  ykpiv_rc rc = token_serial_text(state, serial, sizeof(serial));
+ 
+-  int actual = snprintf(buf, sizeof(buf), "Token2 PIV #%u", serial);
++  int actual = snprintf(buf, sizeof(buf), "Token2 PIV #%s", serial);
+ 
+   if(actual < 0)
+     return CKR_FUNCTION_FAILED;

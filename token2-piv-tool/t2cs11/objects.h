@@ -1,0 +1,81 @@
+/*
+ * Copyright (c) 2015-2016,2019-2020 Yubico AB
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+#ifndef OBJECTS_H
+#define OBJECTS_H
+
+#include "t2cs11.h"
+
+CK_ULONG piv_2_t2piv(piv_obj_id_t obj);
+CK_BYTE get_sub_id(piv_obj_id_t obj);
+
+CK_BBOOL is_present(t2cs11_slot_t *s, piv_obj_id_t id);
+CK_BBOOL add_object(t2cs11_slot_t *s, piv_obj_id_t id);
+
+piv_obj_id_t find_data_object(CK_BYTE sub_id);
+piv_obj_id_t find_cert_object(CK_BYTE sub_id);
+piv_obj_id_t find_pubk_object(CK_BYTE sub_id);
+piv_obj_id_t find_pvtk_object(CK_BYTE sub_id);
+piv_obj_id_t find_atst_object(CK_BYTE sub_id);
+
+CK_RV    get_attribute(t2cs11_slot_t *s, piv_obj_id_t obj, CK_ATTRIBUTE_PTR template);
+CK_BBOOL attribute_match(t2cs11_slot_t *s, piv_obj_id_t obj, CK_ATTRIBUTE_PTR attribute);
+CK_BBOOL is_private_object(piv_obj_id_t obj);
+void sort_objects(t2cs11_slot_t *s);
+
+CK_RV    store_data(t2cs11_slot_t *s, CK_BYTE sub_id, CK_BYTE_PTR data, CK_ULONG len);
+CK_RV    delete_data(t2cs11_slot_t *s, CK_BYTE sub_id);
+CK_RV    store_cert(t2cs11_slot_t *s, CK_BYTE sub_id, CK_BYTE_PTR data, CK_ULONG len, CK_BBOOL force_pubkey);
+CK_RV    delete_cert(t2cs11_slot_t *s, CK_BYTE sub_id);
+CK_RV    get_data_len(t2cs11_slot_t *s, CK_BYTE sub_id, CK_ULONG_PTR len);
+
+CK_RV check_create_cert(CK_ATTRIBUTE_PTR templ, CK_ULONG n, CK_BYTE_PTR id,
+                        CK_BYTE_PTR *value, CK_ULONG_PTR cert_len);
+CK_RV check_create_x25519_key(CK_ATTRIBUTE_PTR templ, CK_ULONG n, CK_BYTE_PTR id,
+                              CK_BYTE_PTR *value, CK_ULONG_PTR value_len,
+                              CK_BYTE_PTR touch_policy, CK_BYTE_PTR pin_policy);
+CK_RV check_create_ed_key(CK_ATTRIBUTE_PTR templ, CK_ULONG n, CK_BYTE_PTR id,
+                          CK_BYTE_PTR *value, CK_ULONG_PTR value_len,
+                          CK_BYTE_PTR touch_policy, CK_BYTE_PTR pin_policy);
+CK_RV check_create_ec_key(CK_ATTRIBUTE_PTR templ, CK_ULONG n, CK_BYTE_PTR id,
+                          CK_BYTE_PTR *value, CK_ULONG_PTR value_len,
+                          CK_BYTE_PTR touch_policy, CK_BYTE_PTR pin_policy);
+CK_RV check_create_rsa_key(CK_ATTRIBUTE_PTR templ, CK_ULONG n, CK_BYTE_PTR id,
+                           CK_BYTE_PTR *p, CK_ULONG_PTR p_len,
+                           CK_BYTE_PTR *q, CK_ULONG_PTR q_len,
+                           CK_BYTE_PTR *dp, CK_ULONG_PTR dp_len,
+                           CK_BYTE_PTR *dq, CK_ULONG_PTR dq_len,
+                           CK_BYTE_PTR *qinv, CK_ULONG_PTR qinv_len,
+                           CK_BYTE_PTR touch_policy, CK_BYTE_PTR pin_policy);
+
+CK_RV check_pubkey_template(gen_info_t *gen, CK_MECHANISM_PTR mechanism, CK_ATTRIBUTE_PTR templ, CK_ULONG n);
+CK_RV check_pvtkey_template(gen_info_t *gen, CK_MECHANISM_PTR mechanism, CK_ATTRIBUTE_PTR templ, CK_ULONG n);
+
+#endif
