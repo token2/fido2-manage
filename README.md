@@ -2,8 +2,7 @@
 
 **fido2-manage** is a command-line tool for managing FIDO2 security keys —
 passkeys, PINs, fingerprints, PIN policy and factory reset. This project is the
-ground-up rewrite of the original
-[fido2-manage](https://github.com/token2/fido2-manage): a native, cross-platform
+ground-up rewrite of the original fido2-manage  a native, cross-platform
 binary (no Python/pexpect dependency), with the classic flag set preserved.
 
 Alongside the rewritten CLI, the project now also ships **PIV command-line tools**
