@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+export DEB_CFLAGS_MAINT_APPEND=-std=gnu99
+
+%:
+	dh $@ --parallel
+
+override_dh_install:
+	chrpath -d $(CURDIR)/debian/tmp/usr/bin/*
+	chrpath -d $(CURDIR)/debian/tmp/usr/lib/*/libt2piv.so.*
+	chrpath -d $(CURDIR)/debian/tmp/usr/lib/*/libt2cs11.so.*
+	find debian/tmp -name \*.la -delete
+	find debian/tmp -name libt2cs11.a -delete
+	find debian/tmp -name t2cs11-version.h -delete
+	dh_install --fail-missing
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DSKIP_TESTS=1

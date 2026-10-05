@@ -1,0 +1,70 @@
+/*
+ * Copyright (c) 2015-2017,2019-2020 Yubico AB
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+#ifndef OPENSSL_UTIL_H
+#define OPENSSL_UTIL_H
+
+#include "openssl_types.h"
+#include "pkcs11t2.h"
+
+CK_RV do_rand_seed(CK_BYTE_PTR data, CK_ULONG len);
+CK_RV do_rand_bytes(CK_BYTE_PTR data, CK_ULONG len);
+CK_RV do_rsa_encrypt(t2cs11_pkey_t *key, int padding, const t2cs11_md_t* oaep_md, const t2cs11_md_t* oaep_mgf1, 
+                     unsigned char *oaep_label, CK_ULONG oaep_label_len,
+                     CK_BYTE_PTR data, CK_ULONG data_len, CK_BYTE_PTR enc, CK_ULONG_PTR enc_len);
+CK_RV do_store_cert(CK_BYTE_PTR data, CK_ULONG len, t2cs11_x509_t **cert);
+CK_RV do_generate_ec_key(int curve_name, t2cs11_pkey_t **pkey);
+CK_RV do_sign_empty_cert(const char *cn, t2cs11_pkey_t *pubkey, t2cs11_pkey_t *pvtkey, t2cs11_x509_t **cert);
+CK_RV do_create_empty_cert(CK_BYTE_PTR in, CK_ULONG in_len, CK_ULONG algorithm,
+                           const char *cn, CK_BYTE_PTR out, CK_ULONG_PTR out_len);
+CK_RV do_check_cert(CK_BYTE_PTR in, CK_ULONG in_len, CK_ULONG_PTR cert_len);
+CK_RV do_get_raw_cert(t2cs11_x509_t *cert, CK_BYTE_PTR out, CK_ULONG_PTR out_len);
+CK_RV do_get_raw_name(t2cs11_x509_name_t *name, CK_BYTE_PTR out, CK_ULONG_PTR out_len);
+CK_RV do_get_raw_integer(t2cs11_asn1_integer_t *serial, CK_BYTE_PTR out, CK_ULONG_PTR out_len);
+CK_RV do_delete_cert(t2cs11_x509_t **cert);
+
+CK_RV       do_store_pubk(t2cs11_x509_t *cert, t2cs11_pkey_t **key);
+CK_RV       do_parse_attestation(t2cs11_x509_t *cert, CK_BYTE_PTR pin_policy, CK_BYTE_PTR touch_policy);
+CK_KEY_TYPE do_get_key_type(t2cs11_pkey_t *key);
+CK_ULONG    do_get_key_bits(t2cs11_pkey_t *key);
+CK_ULONG    do_get_key_size(t2cs11_pkey_t *key);
+CK_ULONG    do_get_signature_size(t2cs11_pkey_t *key);
+CK_BYTE     do_get_key_algorithm(t2cs11_pkey_t *key);
+CK_BBOOL    do_check_public_exponent(CK_BYTE_PTR data, CK_ULONG len);
+CK_RV       do_get_public_exponent(t2cs11_pkey_t *key, CK_BYTE_PTR data, CK_ULONG_PTR len);
+CK_RV       do_get_public_key(t2cs11_pkey_t *key, CK_BYTE_PTR data, CK_ULONG_PTR len);
+CK_RV       do_get_modulus(t2cs11_pkey_t *key, CK_BYTE_PTR data, CK_ULONG len);
+CK_RV       do_get_curve_parameters(t2cs11_pkey_t *key, CK_BYTE_PTR data, CK_ULONG_PTR len);
+CK_RV       do_delete_pubk(t2cs11_pkey_t **key);
+
+CK_RV do_apply_DER_encoding_to_ECSIG(CK_BYTE_PTR signature, CK_ULONG_PTR len, CK_ULONG buf_size);
+CK_RV do_strip_DER_encoding_from_ECSIG(CK_BYTE_PTR data, CK_ULONG len, CK_ULONG sig_len);
+
+#endif

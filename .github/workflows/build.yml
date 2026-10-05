@@ -1,0 +1,83 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:   # manual only — run from the Actions tab
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- Rust toolchain (cached) ----
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo + build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: token2-piv-gui/src-tauri
+
+      # ---- vcpkg (cached) ----
+      - name: Cache vcpkg
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-${{ runner.os }}-openssl-getopt-zlib-libcbor-v1
+
+      # ---- Tauri CLI (cached via cargo cache above; install if missing) ----
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked || echo "already installed"
+
+      # ---- Node (Tauri may invoke it; harmless if unused) ----
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ---- Build everything via the existing script ----
+      # Output dir is OUTSIDE the checkout ($RUNNER_TEMP) so build artifacts can
+      # never be committed back into the repo, and the checkout stays clean.
+      - name: Build (tool + libfido2 + GUI)
+        shell: pwsh
+        run: |
+          $dist = Join-Path $env:RUNNER_TEMP "dist"
+          echo "DIST=$dist" >> $env:GITHUB_ENV
+          .\build-all.ps1 -DistPath $dist -VcpkgPath "C:\vcpkg"
+
+      # ---- Collect outputs from the external dist + Tauri bundle ----
+      - name: Stage artifacts
+        if: always()
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP "artifacts"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          # portable build only: copy the single token2-key-manager folder (GUI + CLI + DLLs)
+          if ($env:DIST -and (Test-Path (Join-Path $env:DIST "token2-key-manager"))) {
+            Copy-Item -Recurse (Join-Path $env:DIST "token2-key-manager") $stage -Force
+          } elseif ($env:DIST -and (Test-Path $env:DIST)) {
+            Copy-Item -Recurse $env:DIST (Join-Path $stage "dist") -Force
+          }
+          echo "STAGE=$stage" >> $env:GITHUB_ENV
+          Get-ChildItem -Recurse $stage | Select-Object FullName | Format-Table -Auto
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: token2-key-manager-windows
+          path: ${{ env.STAGE }}/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      # ---- On a version tag, also publish a GitHub Release ----
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.STAGE }}/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

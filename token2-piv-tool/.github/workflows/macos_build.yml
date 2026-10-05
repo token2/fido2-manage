@@ -1,0 +1,99 @@
+name: MacOS Build
+# This workflow is triggered on pushes to the repository.
+on: [push]
+
+jobs:
+
+  job1:
+    name: MacOS
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-large
+          - os: macos-15-xlarge
+          - os: macos-14-large
+          - os: macos-14-xlarge
+    steps:
+      # This action checks-out the repository under $GITHUB_WORKSPACE, so the workflow can access it.
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          set -x
+          brew update
+          brew install check gengetopt help2man opensc zlib
+          brew reinstall openssl@3
+      - name: Build and install
+        run: |
+          set -x
+          mkdir build
+          cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DOPENSSL_PKG_PATH=/usr/local/opt/openssl/lib/pkgconfig
+          make
+          make test
+
+          otool -L tool/token2-piv-tool | grep libcrypto
+          otool -L lib/libt2piv.dylib | grep libcrypto
+          otool -L t2cs11/libt2cs11.dylib | grep libcrypto
+
+          sudo make install
+
+          token2-piv-tool --help | grep "Usage: token2-piv-tool"
+          objdump --syms /usr/local/lib/libt2cs11.dylib | grep C_Sign
+          pkcs11-tool --module /usr/local/lib/libt2cs11.dylib --show-info | grep Yubico
+
+      - name: Build using OpenSSL static link
+        run: |
+          set -x
+          export PKG_CONFIG_PATH=/usr/local/opt/openssl/lib/pkgconfig:PKG_CONFIG_PATH
+
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DOPENSSL_STATIC_LINK=ON -DBACKEND=macscard
+          make
+          make test
+
+          otool -L tool/token2-piv-tool | grep libcrypto | wc -l | grep 0
+          otool -L lib/libt2piv.dylib | grep libcrypto | wc -l | grep 0
+          otool -L t2cs11/libt2cs11.dylib | grep libcrypto | wc -l | grep 0
+
+          sudo make install
+
+          token2-piv-tool --help | grep "Usage: token2-piv-tool"
+
+          pkcs11-tool --module /usr/local/lib/libt2cs11.dylib --show-info | grep Yubico
+
+      - name: Build with T2CS11_DBG is set
+        run: |
+          set -x
+          export PKG_CONFIG_PATH=/usr/local/opt/openssl/lib/pkgconfig:PKG_CONFIG_PATH
+
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DT2CS11_DBG=3
+          make
+          make test
+
+          otool -L t2cs11/libt2cs11.dylib | grep libcrypto
+
+          pkcs11-tool --module t2cs11/libt2cs11.dylib --show-info | grep Yubico
+
+      - name: Build only library (no CLI and no t2cs11)
+        run: |
+          set -x
+          export PKG_CONFIG_PATH=/usr/local/opt/openssl/lib/pkgconfig:PKG_CONFIG_PATH
+
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DBUILD_ONLY_LIB=ON
+          make
+          make test
+
+      - name: Build only dynamic libaries
+        run: |
+          set -x
+          export PKG_CONFIG_PATH=/usr/local/opt/openssl/lib/pkgconfig:PKG_CONFIG_PATH
+
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DBUILD_STATIC_LIB=OFF
+          make
+          make test

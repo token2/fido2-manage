@@ -1,0 +1,24 @@
+# Rust / Tauri build output
+**/target/
+token2-piv-gui/src-tauri/target/
+dist/
+artifacts/
+
+# libfido2 build tree + patch marker
+deps/libfido2/build/
+deps/libfido2/.token2-tunnel-applied
+
+# vcpkg (if cloned into the tree)
+vcpkg/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.user
+.vs/
+node_modules/
+token2-piv-gui/src-tauri/libs/
+
+repo.zip
+/fido2-manage.rs
+*.zip

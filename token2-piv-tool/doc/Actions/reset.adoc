@@ -1,0 +1,38 @@
+== Reset
+    $ token2-piv-tool -a reset
+
+=== Description
+Erases all keys and certificates stored on the device and sets it to the default PIN,
+PUK and management key. This will only affect the PIV application on the Token2 key, so any
+non-PIV configuration will remain intact. Resetting the device will not erase the
+attestation key and certificate (slot f9) either, but they can be overwritten.
+
+To reset the device, the PIN and the PUK need to be blocked, which happens when entering
+the wrong PIN and PUK more than the number of their retries.
+
+==== Global Reset
+
+The Bio Multi-protocol Edition Token2 key has support for a global reset option. This option will erase
+all data on the Token2 key and is *not* restricted to the PIV application. It also does not require that the PIN and PUK
+to be blocked.
+
+Note that the global reset option cannot be used over an encrypted session.
+
+|===================================
+|Parameter          | Required | Description | Default value
+|--global         | | Reset the whole device over all applications, including the PIV application | Off
+|===================================
+
+=== Examples
+
+    $ token2-piv-tool -averify-pin -P471112
+    $ token2-piv-tool -averify-pin -P471112
+    $ token2-piv-tool -averify-pin -P471112
+    $ token2-piv-tool -averify-pin -P471112
+    $ token2-piv-tool -achange-puk -P471112 -N6756789
+    $ token2-piv-tool -achange-puk -P471112 -N6756789
+    $ token2-piv-tool -achange-puk -P471112 -N6756789
+    $ token2-piv-tool -achange-puk -P471112 -N6756789
+    $ token2-piv-tool -areset
+
+    $ token2-piv-tool -areset --global

@@ -1,0 +1,13 @@
+== Version
+    $ token2-piv-tool -a version
+
+=== Description
+Displays the Token2 key's firmware version
+
+=== Parameters
+None
+
+=== Examples
+
+    $ token2-piv-tool -a version
+    Firmware version 4.4.0 found.

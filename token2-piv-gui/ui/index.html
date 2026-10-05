@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Token2 Key Manager</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="menubar">
+  <img src="logo-black.png" alt="TOKEN2" class="logo">
+  <nav class="menus" role="menubar">
+    <button class="menu-btn home-btn" id="btn-home" title="Home (overview)" aria-label="Home"><svg viewBox="0 0 24 24" style="width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg></button>
+    <div class="menu" data-menu="file"><button class="menu-btn">File</button>
+      <div class="dropdown">
+        <button data-mi="reconnect">Reconnect</button>
+        <button data-mi="disconnect">Disconnect</button>
+        <button data-mi="diag">Diagnostics…</button>
+        <hr><button data-mi="exit">Exit</button>
+      </div></div>
+    <div class="menu" data-menu="otp"><button class="menu-btn">OTP</button>
+      <div class="dropdown">
+        <button data-mi="otp-accounts">Accounts</button>
+        <button data-mi="otp-hidhotp">HID-HOTP</button>
+        <button data-mi="otp-protection">OTP Protection</button>
+        <hr><button data-mi="otp-reset" class="danger">Reset</button>
+      </div></div>
+    <div class="menu" data-menu="fido"><button class="menu-btn">FIDO</button>
+      <div class="dropdown">
+        <button data-mi="fido-pin">PIN</button>
+        <button data-mi="fido-passkeys">Passkeys</button>
+        <button data-mi="fido-fingerprints">Fingerprints</button>
+        <button data-mi="fido-settings">Settings</button>
+        <hr><button data-mi="fido-reset" class="danger">Reset FIDO</button>
+      </div></div>
+    <div class="menu" data-menu="piv"><button class="menu-btn">PIV</button>
+      <div class="dropdown">
+        <button data-mi="piv-certs">Certificates</button>
+        <button data-mi="piv-pin">Change PIN</button>
+        <button data-mi="piv-admin">Change Admin PIN</button>
+        <button data-mi="piv-puk">Change PUK</button>
+        <button data-mi="piv-unblock">Unblock PIN</button>
+        <button data-mi="piv-retries">Retry limits</button>
+        <button data-mi="piv-attest">Attestation certificate</button>
+        <button data-mi="piv-fplogin"><svg viewBox="0 0 24 24" class="ico" style="width:16px;height:16px;fill:currentColor;margin-right:6px;vertical-align:-3px"><path d="M12 1C16.9706 1 21 5.02944 21 10V14C21 18.9706 16.9706 23 12 23C10.9137 23 9.8724 22.8076 8.90826 22.4549C9.03638 22.2782 9.15938 22.0977 9.27703 21.9134L9.44782 21.633C10.388 20.0636 10.9461 18.2391 10.9963 16.2884L11 16V9H13V16C13 17.7724 12.6453 19.4619 12.0031 21.0015C12.7954 21 13.5599 20.8673 14.2724 20.6229C14.7147 19.2616 14.966 17.8148 14.9968 16.3138L15 16L14.9998 12.999H16.9998L17 16C17 17.0885 16.8977 18.1531 16.7022 19.1847C18.0583 17.9552 18.9297 16.2 18.9959 14.2407L19 14V10C19 6.13401 15.866 3 12 3C10.4277 3 8.97638 3.51841 7.8078 4.39364L6.38282 2.96769C7.92242 1.73631 9.87522 1 12 1ZM7 10C7 7.23858 9.23858 5 12 5C14.7614 5 17 7.23858 17 10V11H15V10C15 8.34315 13.6569 7 12 7C10.4023 7 9.09634 8.24892 9.00509 9.82373L9 10V16C9 17.5669 8.5996 19.0402 7.89554 20.3233L7.87214 20.3627C7.64284 20.7771 7.38087 21.1711 7.09037 21.5417C6.6495 21.2545 6.23541 20.9297 5.85264 20.5719L5.5445 20.2711C3.96956 18.65 3 16.4382 3 14V10C3 7.87522 3.73631 5.92242 4.96769 4.38282L6.39364 5.8078C5.56325 6.91652 5.05405 8.27971 5.00406 9.75935L5 10V14C5 15.6748 5.58816 17.2122 6.56918 18.4169C6.82239 17.7351 6.97017 17.0034 6.99594 16.2407L7 16V10Z"/></svg>Fingerprint login</button>
+        <hr><button data-mi="piv-reset" class="danger">Reset</button>
+      </div></div>
+    <div class="menu" data-menu="settings"><button class="menu-btn">Settings</button>
+      <div class="dropdown">
+        <button data-mi="device-settings">Device settings</button>
+      </div></div>
+    <div class="menu" data-menu="about"><button class="menu-btn">About</button>
+      <div class="dropdown"><button data-mi="about">About Token2 Key Manager</button></div></div>
+  </nav>
+  <span id="menubar-status" class="hint"></span>
+</header>
+<div id="app">
+  <aside id="key-panel">
+    <section id="key-ident" hidden>
+      <div id="ident-illus" class="di-illus"></div>
+      <div class="dev-badge"><svg viewBox="0 0 24 24" class="ico" style="width:20px;height:20px;fill:var(--brand)"><path d="M10.7577 11.8281L18.6066 3.97919L20.0208 5.3934L18.6066 6.80761L21.0815 9.28249L19.6673 10.6967L17.1924 8.22183L15.7782 9.63604L17.8995 11.7574L16.4853 13.1716L14.364 11.0503L12.1719 13.2423C13.4581 15.1837 13.246 17.8251 11.5355 19.5355C9.58291 21.4882 6.41709 21.4882 4.46447 19.5355C2.51184 17.5829 2.51184 14.4171 4.46447 12.4645C6.17493 10.754 8.81633 10.5419 10.7577 11.8281ZM10.1213 18.1213C11.2929 16.9497 11.2929 15.0503 10.1213 13.8787C8.94975 12.7071 7.05025 12.7071 5.87868 13.8787C4.70711 15.0503 4.70711 16.9497 5.87868 18.1213C7.05025 19.2929 8.94975 19.2929 10.1213 18.1213Z"/></svg><span id="ident-name">Security key</span></div>
+      <dl class="dev-fields">
+        <div id="di-model-row"><dt>Model</dt><dd id="di-model">—</dd></div>
+        <div id="di-rev-row"><dt>Firmware</dt><dd id="di-rev">—</dd></div>
+        <div id="di-serial-row"><dt>Serial</dt><dd id="di-serial">—</dd></div>
+        <div id="di-apps-row"><dt>Applications</dt><dd id="di-apps">—</dd></div>
+        <div id="di-access-row"><dt>Access</dt><dd id="di-access">—</dd></div>
+        <div id="di-note-row" hidden><dt>Note</dt><dd id="di-note" style="white-space:pre-wrap;overflow-wrap:anywhere"></dd></div>
+      </dl>
+    </section>
+    <section id="home-info" class="dev-info" hidden></section>
+    <nav class="modes" role="tablist" hidden>
+      <button class="mode active" data-mode="piv" role="tab">PIV</button>
+      <button class="mode" data-mode="fido" role="tab">FIDO2</button>
+      <button class="mode" data-mode="oath" role="tab">OTP</button>
+    </nav>
+
+    <section id="connect-box" hidden>
+      <label for="reader">Reader</label>
+      <div class="row">
+        <select id="reader"></select>
+        <button id="btn-refresh" class="ghost icon" title="Rescan readers" aria-label="Rescan readers"><svg class="ico" viewBox="0 0 24 24" style="margin:0"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg></button>
+      </div>
+      <button id="btn-connect" class="primary wide">Connect</button>
+      <p id="connect-msg" class="hint"></p>
+    </section>
+
+    <section id="key-box" hidden>
+      <div class="kv">
+        <div><span>Serial</span><b id="k-serial"></b></div>
+        <div id="k-model-row" hidden><span>Model</span><b id="k-model"></b></div>
+        <div><span>Applet version</span><b id="k-version"></b></div>
+        <div><span>Admin PIN</span><b id="k-mgm"></b></div>
+      </div>
+      <div class="retries">
+        <span>PIN attempts left</span>
+        <div class="pips" id="k-pin-pips"></div>
+        <b id="k-pin-retries"></b>
+      </div>
+      <p id="k-puk" class="hint"></p>
+
+      <nav class="actions">
+        <button data-dialog="dlg-pin">Change PIN</button>
+        <button data-dialog="dlg-puk">Change PUK</button>
+        <button data-dialog="dlg-unblock">Unblock PIN</button>
+        <button data-dialog="dlg-mgm">Admin PIN</button>
+        <button data-dialog="dlg-retries">Retry limits</button>
+        <button id="btn-attest-chain">Attestation certificate</button>
+        <button id="btn-reset" class="danger">Reset PIV applet</button>
+      </nav>
+    </section>
+
+    <section id="fido-connect-box" hidden>
+      <label for="fido-device">FIDO2 device</label>
+      <div class="row">
+        <select id="fido-device"></select>
+        <button id="btn-fido-refresh" class="ghost icon" title="Rescan devices" aria-label="Rescan devices"><svg class="ico" viewBox="0 0 24 24" style="margin:0"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg></button>
+      </div>
+      <button id="btn-fido-connect" class="primary wide">Connect</button>
+      <p id="fido-connect-msg" class="hint"></p>
+      <button id="btn-fido-diag" class="ghost wide">Why isn't my key listed?</button>
+    </section>
+
+    <section id="fido-dev-box" hidden>
+      <details class="more">
+        <summary>More info</summary>
+        <div class="kv">
+          <div><span>Device</span><b id="f-product"></b></div>
+          <div><span>Transport</span><b id="f-transport"></b></div>
+          <div><span>Firmware</span><b id="f-firmware"></b></div>
+          <div><span>PIN</span><b id="f-pin"></b></div>
+          <div><span>Passkeys remaining</span><b id="f-rk"></b></div>
+          <div><span>Versions</span><b id="f-versions"></b></div>
+          <div><span>AAGUID</span><b id="f-aaguid" class="mono"></b></div>
+          <div><span>Min PIN length</span><b id="f-minpin"></b></div>
+          <div><span>Always UV</span><b id="f-alwaysuv"></b></div>
+        </div>
+        <div class="retries">
+          <span>PIN attempts left</span>
+          <div class="pips" id="f-pin-pips"></div>
+          <b id="f-pin-retries"></b>
+        </div>
+        <div class="retries" id="f-uv-row">
+          <span>Fingerprint attempts left</span>
+          <div class="pips" id="f-uv-pips"></div>
+          <b id="f-uv-retries"></b>
+        </div>
+      </details>
+      <nav class="actions">
+        <button data-dialog="dlg-fido-pin" id="btn-fido-pin">Set / change PIN</button>
+        <button data-dialog="dlg-fido-minpin">Minimum PIN length</button>
+        <button id="btn-fido-forcepin">Force PIN change at next use</button>
+        <button id="btn-fido-alwaysuv">Toggle always UV</button>
+        <button id="btn-fido-reset" class="danger">Factory reset</button>
+      </nav>
+    </section>
+
+    <section id="oath-connect-box" hidden>
+      <label for="oath-reader">Reader</label>
+      <div class="row">
+        <select id="oath-reader"></select>
+        <button id="btn-oath-refresh" class="ghost icon" title="Rescan readers" aria-label="Rescan readers"><svg class="ico" viewBox="0 0 24 24" style="margin:0"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg></button>
+      </div>
+      <button id="btn-oath-connect" class="primary wide">Connect</button>
+      <p id="oath-connect-msg" class="hint"></p>
+    </section>
+
+    <section id="t2otp-dev-box" hidden>
+      <details class="more">
+        <summary>More info</summary>
+        <div class="kv">
+          <div><span>Applet</span><b>Token2 OTP</b></div>
+          <div><span>Serial</span><b id="t-serial"></b></div>
+          <div><span>OTP PIN</span><b id="t-pin"></b></div>
+          <div id="t-model-row" hidden><span>Model</span><b id="t-model"></b></div>
+          <div><span>FIDO version</span><b id="t-fido"></b></div>
+          <div><span>Features</span><b id="t-features"></b></div>
+          <div><span>TOTP</span><b id="t-totp"></b></div>
+          <div><span>Button HOTP</span><b id="t-btnhotp"></b></div>
+          <div><span>OTP needs fingerprint</span><b id="t-uvotp"></b></div>
+        </div>
+        <div class="retries" id="t-pin-row" hidden>
+          <span>OTP PIN attempts left</span>
+          <div class="pips" id="t-pin-pips"></div>
+          <b id="t-pin-retries"></b>
+        </div>
+      </details>
+      <nav class="actions">
+        <button id="btn-t2-add">Add account</button>
+        <button id="btn-t2-setpin">Set OTP PIN</button>
+        <button id="btn-t2-lock" hidden>Lock now</button>
+        <button id="btn-t2-fp" hidden>Require fingerprint for OTP</button>
+        <button id="btn-t2-ifaces">USB interfaces…</button>
+        <button id="btn-t2-totp">Enable TOTP</button>
+        <button id="btn-t2-btnhotp">Button HOTP…</button>
+        <button id="btn-t2-erase" class="danger">Erase all accounts</button>
+      </nav>
+    </section>
+
+    <section id="oath-dev-box" hidden>
+      <div class="kv">
+        <div><span>OATH applet</span><b id="o-version"></b></div>
+        <div><span>Device ID</span><b id="o-devid" class="mono"></b></div>
+        <div><span>Password</span><b id="o-password"></b></div>
+      </div>
+      <nav class="actions">
+        <button id="btn-oath-add">Add account</button>
+        <button data-dialog="dlg-oath-password" id="btn-oath-setpw">Set password</button>
+        <button id="btn-oath-removepw">Remove password</button>
+        <button id="btn-oath-reset" class="danger">Erase all accounts</button>
+      </nav>
+    </section>
+  </aside>
+
+  <main id="board">
+    <div id="pcsc-warning" class="pcsc-warn" hidden><div class="pw-body"><b>Smart-card service unavailable</b><div id="pcsc-warning-text" style="white-space:pre-wrap;margin-top:4px"></div></div><button id="pcsc-warning-dismiss" class="ghost" title="Dismiss">✕</button></div>
+    <div id="home-board" hidden>
+      <div class="home-head">
+        <h1 id="home-title">No key connected</h1>
+        <p class="hint" id="home-sub">Insert a Token2 security key. It is detected automatically.</p>
+      </div>
+      <div class="app-cards" id="home-cards"></div>
+    </div>
+    <div id="empty" class="empty" hidden>
+      <h1>No PIV key detected.</h1>
+      <p>The slots on the key will appear here. Nothing is changed on the key until you choose an action.</p>
+    </div>
+    <div id="slots" hidden>
+      <h2>Slots</h2>
+      <div id="primary-slots" class="tiles"></div>
+      <details id="retired">
+        <summary>Retired key management slots <span id="retired-count"></span></summary>
+        <div id="retired-slots" class="rows"></div>
+      </details>
+    </div>
+    <div id="piv-fp-card" class="settings-card" hidden style="margin-top:16px">
+      <div class="setting-row"><span>Fingerprint for PIV login</span><label class="toggle"><input type="checkbox" id="piv-fp-toggle"></label><span></span></div>
+      <p class="hint" id="piv-fp-hint">Let this key authorise PIV/smart-card login with the enrolled fingerprint instead of the PIN. Enroll a fingerprint first (FIDO &rarr; Fingerprints).</p>
+    </div>
+
+
+    <div id="fido-empty" class="empty" hidden>
+      <h1>No FIDO2 key detected.</h1>
+      <p>Insert a key — it connects automatically. Token2 keys work over their smart-card channel (USB or NFC) without administrator rights. A USB-HID-only key on Windows needs the app run as administrator.</p>
+      <button id="btn-fido-detect" class="primary" style="align-self:flex-start">Detect key</button>
+    </div>
+    <div id="fido-board" hidden>
+      <div id="fido-note-banner" class="note-banner" hidden><svg class="ico" viewBox="0 0 24 24" style="flex:none"><path d="M21 8V20.9932C21 21.5501 20.5552 22 20.0066 22H3.9934C3.44495 22 3 21.556 3 21.0082V2.9918C3 2.44565 3.44694 2 3.99826 2H14.9997L21 8ZM19 9H14V4H5V20H19V9Z"/></svg><span id="fido-note-banner-text"></span></div>
+      <div id="fido-unlock-back" class="back-row" hidden><button id="fs-back-unlock" class="ghost back" title="Back to FIDO settings">← Back</button></div>
+      <section class="unlock" id="fido-unlock">
+        <label>PIN <input id="fido-pin" type="password" autocomplete="off"></label>
+        <button id="btn-fido-unlock" class="primary">Unlock with PIN</button>
+        <button id="btn-fido-unlock-uv" hidden>Unlock with fingerprint</button>
+        <p class="hint">Needed to list passkeys and fingerprints; kept only for this session. With a fingerprint, every action asks for a touch instead.</p>
+      </section>
+      <section id="fido-passkeys" hidden>
+        <h2><button id="fs-back-passkeys" class="ghost back" title="Back to FIDO settings">← Back</button> Passkeys <span id="fido-rk-count" class="count"></span> <button id="btn-passkeys-reload" class="ghost icon" title="Reload" aria-label="Reload"><svg class="ico" viewBox="0 0 24 24" style="margin:0"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg></button></h2>
+        <div id="fido-rps" class="rps"></div>
+      </section>
+      <section id="fido-bio" hidden>
+        <h2><button id="fs-back-bio" class="ghost back" title="Back to FIDO settings">← Back</button> Fingerprints <span id="fido-bio-count" class="count"></span> <button id="btn-bio-reload" class="ghost icon" title="Reload" aria-label="Reload"><svg class="ico" viewBox="0 0 24 24" style="margin:0"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg></button></h2>
+        <div class="unlock" id="fido-bio-unlock" hidden>
+          <label>PIN <input id="fido-bio-pin" type="password" autocomplete="off"></label>
+          <button id="btn-fido-bio-unlock" class="primary">Show fingerprints</button>
+          <p class="hint">Managing fingerprints requires the PIN even when the key was unlocked with a fingerprint (CTAP bio enrollment does not accept a fingerprint-issued token).</p>
+        </div>
+        <div id="fido-templates" class="rows"></div>
+        <button id="btn-fido-enroll" class="primary" style="margin-top:12px">Enroll fingerprint</button>
+      </section>
+    </div>
+      <div id="settings-board" hidden>
+      <section class="settings-card" id="set-interfaces-card">
+        <p class="hint">Unchecking an option disables the corresponding interface on the key. Re-enable it if you run into difficulties after the change. Only the HID-HOTP interface can be switched here; FIDO and CCID are shown for information.</p>
+        <div class="toggles">
+          <label class="toggle"><span>FIDO</span><input type="checkbox" id="tg-fido" disabled></label>
+          <label class="toggle"><span>HID-HOTP</span><input type="checkbox" id="tg-hid"></label>
+          <label class="toggle"><span>CCID</span><input type="checkbox" id="tg-ccid" disabled checked></label>
+        </div>
+        <menu><button id="btn-apply-interfaces" class="primary">Apply</button></menu>
+      </section>
+      <h2>Applets</h2>
+      <section class="settings-card" id="set-applets-card">
+        <div class="toggles two">
+          <span class="rowlabel">USB mode</span>
+          <label class="toggle"><span>OpenPGP</span><input type="checkbox" id="tg-usb-pgp" disabled></label>
+          <label class="toggle"><span>PIV</span><input type="checkbox" id="tg-usb-piv" disabled></label>
+          <span class="rowlabel">NFC mode</span>
+          <label class="toggle"><span>OpenPGP</span><input type="checkbox" id="tg-nfc-pgp" disabled></label>
+          <label class="toggle"><span>PIV</span><input type="checkbox" id="tg-nfc-piv" disabled></label>
+        </div>
+        <p class="hint" id="applet-mode-line"></p>
+        <menu><button id="btn-apply-applets" class="primary" disabled>Apply</button></menu>
+      </section>
+    </div>
+
+    <div id="fido-settings-board" hidden>
+      <nav class="fs-nav">
+        <button id="fs-go-passkeys" class="navcard"><span class="nc-ico" data-icon="passkey"></span><span class="nc-t"><b>Passkeys</b><small>View and manage stored passkeys</small></span></button>
+        <button id="fs-go-fingerprints" class="navcard" hidden><span class="nc-ico" data-icon="fingerprint"></span><span class="nc-t"><b>Fingerprints</b><small>Enroll and manage fingerprints</small></span></button>
+      </nav>
+      <section class="settings-card">
+        <p id="fido-pin-state" class="lede"></p>
+        <div class="row">
+          <button id="fs-change-pin" class="primary">Change PIN</button>
+          <button id="fs-reset" class="danger">Reset FIDO</button>
+        </div>
+      </section>
+      <section class="settings-card">
+        <div class="setting-row" id="fs-min-alpha-row"><span>Minimum length of alphanumeric PIN</span><input id="fs-min-alpha" type="number" min="4" max="63"><button id="fs-min-alpha-btn" class="primary">Set</button></div>
+        <div class="setting-row"><span>Minimum length of numeric PIN</span><input id="fs-min-num" type="number" min="4" max="63"><button id="fs-min-num-btn" class="primary">Set</button></div>
+        <div class="setting-row"><span>Enforce verification (always_uv)</span><label class="toggle"><input type="checkbox" id="fs-always-uv"></label><span></span></div>
+        <div class="force-row" id="fs-forcepin-row"><span>Force PIN change at next use</span><button id="fs-forcepin" class="primary"><svg class="ico" viewBox="0 0 24 24"><path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11.0026 16L6.75999 11.7574L8.17421 10.3431L11.0026 13.1716L16.6595 7.51472L18.0737 8.92893L11.0026 16Z"/></svg>Apply</button></div>
+        <p class="hint" id="fs-min-hint">The numeric minimum is the standard CTAP setting.</p>
+      </section>
+      <section class="settings-card" id="fs-note-card" hidden>
+        <h3 style="margin:0">Key note</h3>
+        <p class="hint">A short label stored on the key itself (CTAP 2.1 large-blob) and shown whenever this key is plugged in — e.g. the key’s name or where it’s kept. Not encrypted. Max 56 characters.</p>
+        <textarea id="fs-note-text" rows="2" maxlength="56" placeholder="e.g. Backup key — office safe" style="width:100%;resize:vertical"></textarea><div class="hint" style="text-align:right"><span id="fs-note-count">0</span>/56</div>
+        <div class="row">
+          <button id="fs-note-save" class="primary">Save note</button>
+          <button id="fs-note-clear" class="ghost">Clear</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="otp-protection-board" hidden>
+      <section class="settings-card">
+        <p id="op-state" class="lede"></p>
+        <div class="row">
+          <button id="op-setpin" class="primary">Set OTP PIN</button>
+          <button id="op-changepin">Change OTP PIN</button>
+          <button id="op-removepin" class="danger">Remove OTP PIN</button>
+          <button id="op-lock" class="ghost">Lock now</button>
+        </div>
+        <div class="setting-row" id="op-fp-row"><span>Require fingerprint for OTP</span><label class="toggle"><input type="checkbox" id="op-fp"></label><span></span></div>
+        <p class="hint" id="op-hint"></p>
+      </section>
+    </div>
+
+    <div id="about-board" hidden>
+      <section class="settings-card about">
+        <h1>Token2 Key Manager</h1>
+        <p class="hint">PIV, FIDO2, OTP and OpenPGP management for Token2 security keys — PIV via libt2piv, FIDO2 via libfido2 (PC/SC backend), OTP/OATH over PC/SC and the CTAPHID tunnel.</p>
+        <p class="hint">© Token2 Sàrl. Released under open-source licences. Built with the following open-source software:</p>
+
+        <h3>Core libraries</h3>
+        <ul class="credits">
+          <li><b>libfido2</b> — FIDO2/CTAP library. © Yubico AB — BSD-2-Clause.</li>
+          <li><b>yubico-piv-tool / libykpiv</b> — PIV smart-card library (basis of libt2piv). © Yubico AB — BSD-2-Clause.</li>
+          <li><b>libcbor</b> — CBOR encoding/decoding (used by libfido2). © Pawel Winogrodzki — MIT.</li>
+          <li><b>OpenSSL</b> — cryptography and TLS primitives. © The OpenSSL Project — Apache-2.0.</li>
+          <li><b>zlib</b> — compression (used by libfido2). © Jean-loup Gailly &amp; Mark Adler — zlib licence.</li>
+          <li><b>PCSC-Lite / WinSCard</b> — PC/SC smart-card access (platform-provided).</li>
+        </ul>
+
+        <h3>Application framework</h3>
+        <ul class="credits">
+          <li><b>Tauri</b> — desktop application framework. © The Tauri Programme — MIT / Apache-2.0.</li>
+          <li><b>Rust</b> and the standard library. © The Rust Project — MIT / Apache-2.0.</li>
+          <li><b>WebView2 / WebKitGTK</b> — system web renderer (platform-provided).</li>
+        </ul>
+
+        <h3>Rust crates</h3>
+        <ul class="credits">
+          <li><b>pcsc</b> — PC/SC bindings. MIT.</li>
+          <li><b>hidapi</b> — raw HID access for the CTAPHID OTP tunnel. MIT.</li>
+          <li><b>rsa</b>, <b>sha2</b>, <b>sha1</b>, <b>hmac</b>, <b>pbkdf2</b> — RustCrypto primitives. MIT / Apache-2.0.</li>
+          <li><b>x509-parser</b>, <b>der</b>, <b>spki</b>, <b>pem</b>, <b>rcgen</b> — X.509 / ASN.1 / certificate handling. MIT / Apache-2.0.</li>
+          <li><b>serde</b>, <b>serde_json</b> — serialization. MIT / Apache-2.0.</li>
+          <li><b>hex</b>, <b>base32</b>, <b>time</b>, <b>rfd</b> — utilities. MIT / Apache-2.0.</li>
+        </ul>
+
+        <h3>Fonts &amp; assets</h3>
+        <ul class="credits">
+          <li><b>Inter</b> typeface. © The Inter Project Authors — SIL Open Font Licence 1.1.</li>
+          <li>Product illustrations traced from Token2 renders. © Token2 Sàrl.</li>
+        </ul>
+
+        <p class="hint">Full licence texts are distributed with the respective components. The Yubico-derived libraries (libfido2, libykpiv) are used under the BSD-2-Clause licence; this product is not affiliated with or endorsed by Yubico AB.</p>
+      </section>
+    </div>
+
+    <div id="oath-empty" class="empty" hidden>
+      <h1>No key detected.</h1>
+      <p>Insert a key — it connects automatically. TOTP and HOTP accounts stored on the key appear here with live codes.</p>
+      <button id="btn-oath-detect" class="primary" style="align-self:flex-start">Detect key</button>
+    </div>
+    <div id="oath-board" hidden>
+      <section class="unlock" id="oath-unlock" hidden>
+        <label><span id="oath-unlock-label">Applet password</span> <input id="oath-pw" type="password" autocomplete="off"></label>
+        <button id="btn-oath-unlock" class="primary">Unlock</button>
+        <button id="btn-t2-unlock-fp" hidden>Unlock with fingerprint</button>
+        <p class="hint" id="oath-unlock-hint">This key's OATH applet is password-protected.</p>
+      </section>
+      <section id="oath-accounts">
+        <div class="acct-head">
+          <h2>Accounts <span id="oath-count" class="count"></span> <button id="btn-oath-reload" class="ghost icon" title="Reload" aria-label="Reload"><svg class="ico" viewBox="0 0 24 24" style="margin:0"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg></button></h2>
+          <div class="acct-head-right"><span id="oath-timer" class="count timer"></span><button id="btn-oath-add-qr" class="ghost inline-lock">＋ Add OTP profile</button><button id="btn-oath-lock" class="ghost inline-lock" hidden>Lock</button></div>
+        </div>
+        <div id="oath-list" class="rps"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- dialogs -->
+<dialog id="dlg-piv-delete">
+  <form method="dialog" data-cmd="delete_slot">
+    <h3>Delete from slot <span id="del-slot-label"></span></h3>
+    <label class="check"><input type="checkbox" name="cert" checked> Certificate</label>
+    <label class="check" id="del-key-row" hidden><input type="checkbox" name="key"> Private key <span class="hint" style="display:inline">(irreversible; the slot can no longer sign)</span></label>
+    <label>PIV PIN <input name="pin" type="password" required></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="danger">Delete</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-pin">
+  <form method="dialog" data-cmd="change_pin">
+    <h3>Change PIN</h3>
+    <label>Current PIN <input name="current" type="password" required autocomplete="off"></label>
+    <label>New PIN (6–8 characters) <input name="new" type="password" minlength="6" maxlength="8" required></label>
+    <label>Repeat new PIN <input name="repeat" type="password" data-match="new" required></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Change PIN</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-puk">
+  <form method="dialog" data-cmd="change_puk">
+    <h3>Change PUK</h3>
+    <label>Current PUK <input name="current" type="password" required></label>
+    <label>New PUK (6–8 characters) <input name="new" type="password" minlength="6" maxlength="8" required></label>
+    <label>Repeat new PUK <input name="repeat" type="password" data-match="new" required></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Change PUK</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-unblock">
+  <form method="dialog" data-cmd="unblock_pin">
+    <h3>Unblock PIN</h3>
+    <div class="seg" style="display:flex;gap:8px;margin-bottom:10px">
+      <label class="check"><input type="radio" name="method" value="puk" checked> With PUK</label>
+      <label class="check"><input type="radio" name="method" value="admin"> With Admin PIN</label>
+    </div>
+    <p class="hint" id="unblock-hint">Uses the PUK to set a new PIN.</p>
+    <label id="unblock-puk-row">PUK <input name="puk" type="password"></label>
+    <label id="unblock-admin-row" hidden>Admin PIN <input name="admin" type="password"></label>
+    <label>New PIN <input name="new_pin" type="password" minlength="6" maxlength="8" required></label>
+    <label>Repeat new PIN <input name="repeat" type="password" data-match="new_pin" required></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Unblock</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-mgm">
+  <form method="dialog" data-cmd="set_mgm_key">
+    <h3>Admin PIN</h3>
+    <p class="hint">The Admin PIN (the PIV management key) is only needed to reset the user PIN and PUK. Enter up to 24 ASCII characters (padded with zeros), or 48 hex digits.</p>
+    <label>Current Admin PIN <input name="mgm_key" class="mono" required></label>
+    <label>New Admin PIN <input name="new_key" class="mono" required></label>
+    <div class="row">
+      <label>Algorithm
+        <select name="algorithm">
+          <option>3DES</option><option>AES128</option><option>AES192</option><option>AES256</option>
+        </select>
+      </label>
+      <label class="check"><input name="touch" type="checkbox"> Require touch</label>
+    </div>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Set Admin PIN</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-retries">
+  <form method="dialog" data-cmd="set_retries">
+    <h3>Retry limits</h3>
+    <p class="hint">Resets the PIN and PUK to their factory defaults. Needs the Admin PIN and current PIN.</p>
+    <label>Admin PIN <input name="mgm_key" class="mono" required></label>
+    <label>Current PIN <input name="pin_verify" type="password" required></label>
+    <div class="row">
+      <label>PIN attempts <input name="pin_tries" type="number" min="1" max="255" value="3" required></label>
+      <label>PUK attempts <input name="puk_tries" type="number" min="1" max="255" value="3" required></label>
+    </div>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Apply</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-generate">
+  <form method="dialog" data-cmd="generate_key">
+    <h3>Generate key in slot <span data-slot-label></span></h3>
+    <p class="hint">Replaces any existing key in this slot. A certificate can be created right after.</p>
+    <label>PIN <input name="pin" type="password" required></label>
+    <div class="row">
+      <label>Algorithm
+        <select name="algorithm" id="gen-algorithm"></select>
+      </label>
+      <label>PIN policy
+        <select name="pin_policy"><option value="default">Default</option><option value="once">Once per session</option><option value="always">Always</option><option value="never">Never</option></select>
+      </label>
+      <label>Touch policy
+        <select name="touch_policy"><option value="default">Default</option><option value="never">Never</option><option value="always">Always</option><option value="cached">Cached 15 s</option></select>
+      </label>
+    </div>
+    <label class="check"><input name="selfsign" type="checkbox" checked> Create a self-signed certificate after generating</label>
+    <div id="selfsign-fields">
+      <div class="row">
+        <label>Common name <input name="cn" value="Token2 PIV" required></label>
+        <label>Valid for (days) <input name="days" type="number" min="1" max="7300" value="3650" required></label>
+      </div>
+    </div>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Generate</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-pfx">
+  <form method="dialog" data-cmd="import_pfx">
+    <h3>Import PFX / P12 into slot <span data-slot-label></span></h3>
+    <p class="hint">Choose the key file, then its password, then the device PIN. Replaces any key in this slot.</p>
+    <label>File
+      <div class="row"><input name="file" readonly placeholder="No file chosen"><button type="button" id="pfx-browse" class="ghost">Browse…</button></div>
+    </label>
+    <label>File password <input name="password" type="password"></label>
+    <p id="pfx-status" class="hint"></p>
+    <label>Device PIN <input name="pin" type="password" required></label>
+    <div class="row">
+      <label>PIN policy
+        <select name="pin_policy"><option value="default">Default</option><option value="once">Once per session</option><option value="always">Always</option><option value="never">Never</option></select>
+      </label>
+      <label>Touch policy
+        <select name="touch_policy"><option value="default">Default</option><option value="never">Never</option><option value="always">Always</option><option value="cached">Cached 15 s</option></select>
+      </label>
+    </div>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary" id="pfx-import" disabled>Import</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-selfsign">
+  <form method="dialog" data-cmd="self_sign">
+    <h3>Self-signed certificate for slot <span data-slot-label></span></h3>
+    <div class="row">
+      <label>Common name <input name="common_name" value="Token2 PIV" required></label>
+      <label>Valid for (days) <input name="days" type="number" min="1" max="7300" value="3650" required></label>
+    </div>
+    <label>PIN <input name="pin" type="password" required></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Create certificate</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-fido-reset">
+  <h3>Factory reset FIDO2</h3>
+  <p class="hint">All passkeys, fingerprints and the PIN will be erased. A key only accepts a reset shortly after power-up, so this is done step by step.</p>
+  <ol id="reset-steps" class="reset-steps">
+    <li id="rst-1" class="active">Remove the key now — unplug it, or lift it off the NFC reader.</li>
+    <li id="rst-2">Insert it again — plug it back in, or tap it on the reader and hold it there.</li>
+    <li id="rst-3">Resetting… <b>touch the key when it blinks</b> (for NFC, keep it on the reader).</li>
+    <li id="rst-4">Done.</li>
+  </ol>
+  <p id="reset-msg" class="hint"></p>
+  <menu>
+    <button value="cancel" id="btn-reset-cancel">Cancel</button>
+  </menu>
+</dialog>
+<dialog id="dlg-text">
+  <form method="dialog">
+    <h3 id="text-title"></h3>
+    <textarea id="text-body" readonly rows="14" class="mono"></textarea>
+    <menu><button value="close" class="ghost" formnovalidate>Close</button><button value="save" class="primary" id="text-save">Save to file…</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-attest">
+  <form method="dialog">
+    <h3 id="attest-title"></h3>
+    <p id="attest-verdict" class="verdict"></p>
+    <ul id="attest-checks" class="checks"></ul>
+    <div id="attest-props" class="kv"></div>
+    <details><summary>Certificates</summary><textarea id="attest-pem" readonly rows="10" class="mono"></textarea></details>
+    <menu><button value="close" class="ghost" formnovalidate>Close</button><button value="save" class="primary">Save chain…</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-fido-pin">
+  <form method="dialog" data-cmd="fido_set_pin">
+    <h3 id="fido-pin-title">Set PIN</h3>
+    <label id="fido-oldpin-wrap">Current PIN <input name="old_pin" type="password"></label>
+    <label id="fido-pin-len-label">New PIN <input name="new_pin" type="password" minlength="4" maxlength="63" required></label>
+    <label>Repeat new PIN <input name="repeat" type="password" data-match="new_pin" required></label>
+    <p class="hint" id="fido-pin-complexity" hidden>Token2 PIN+ keys enforce PIN complexity: numeric PINs need 6+ digits (8+ on Octo) with no sequences, repeats or palindromes; passwords need 10+ characters from at least two character classes. <a href="https://www.token2.com/site/page/token2-fido2-pin-see-the-pin-complexity-in-action" target="_blank" rel="noopener">See the PIN complexity rules</a>.</p>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Save PIN</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-fido-minpin">
+  <form method="dialog" data-cmd="fido_set_min_pin_len">
+    <h3>Minimum PIN length</h3>
+    <p class="hint">Can only be increased. A PIN shorter than the new minimum must be changed at next use.</p>
+    <label>Minimum length <input name="len" type="number" min="4" max="63" value="4" required></label>
+    <label>Current PIN <span class="hint uv-hint" hidden>(leave empty to confirm with fingerprint)</span><input name="pin" type="password"></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Apply</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-fido-enroll">
+  <form method="dialog" data-cmd="fido_enroll">
+    <h3>Enroll fingerprint</h3>
+    <label>Name <input name="name" placeholder="e.g. right index" maxlength="32"></label>
+    <label>PIN <span class="hint uv-hint" hidden>(leave empty to confirm with fingerprint)</span><input name="pin" type="password"></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Start</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-fido-rename">
+  <form method="dialog" data-cmd="fido_rename_bio">
+    <h3>Rename fingerprint</h3>
+    <label>Name <input name="name" required maxlength="32"></label>
+    <label>PIN <span class="hint uv-hint" hidden>(leave empty to confirm with fingerprint)</span><input name="pin" type="password"></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Rename</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-enroll-progress">
+  <form method="dialog">
+    <h3>Enrolling fingerprint</h3>
+    <p id="enroll-text" class="enroll-text"></p>
+    <div class="bar"><i id="enroll-bar"></i></div>
+    <p id="enroll-status" class="hint"></p>
+    <menu><button value="cancel" class="ghost" formnovalidate id="btn-enroll-cancel">Cancel</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-oath-add">
+  <form method="dialog" data-cmd="oath_put">
+    <h3>Add account</h3>
+    <div class="row qr-row">
+      <button type="button" class="ghost qr-btn" data-qr="screen">Scan screen</button>
+      <button type="button" class="ghost qr-btn" data-qr="file">Scan image…</button>
+    </div>
+    <label>otpauth:// URI (optional — fills the fields below) <input name="uri" class="mono" placeholder="otpauth://totp/Issuer:account?secret=…"></label>
+    <div class="row">
+      <label>Issuer <input name="issuer" maxlength="60"></label>
+      <label>Account <input name="account" required maxlength="60"></label>
+    </div>
+    <label>Secret (base32) <input name="secret" class="mono" required></label>
+    <div class="row">
+      <label>Type <select name="kind"><option value="totp">TOTP (time)</option><option value="hotp">HOTP (counter)</option></select></label>
+      <label>Algorithm <select name="algorithm"><option>SHA1</option><option>SHA256</option><option>SHA512</option></select></label>
+      <label>Digits <select name="digits"><option>6</option><option>7</option><option>8</option></select></label>
+    </div>
+    <div class="row">
+      <label>Period (s) <input name="period" type="number" min="15" max="120" value="30"></label>
+      <label>HOTP counter <input name="counter" type="number" min="0" value="0"></label>
+    </div>
+    <label class="check"><input name="touch" type="checkbox"> Require touch to show the code</label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Add to key</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-t2-add">
+  <form method="dialog" data-cmd="t2otp_write">
+    <h3>Add account (Token2 OTP)</h3>
+    <div class="row qr-row">
+      <button type="button" class="ghost qr-btn" data-qr="screen">Scan screen</button>
+      <button type="button" class="ghost qr-btn" data-qr="file">Scan image…</button>
+    </div>
+    <label>otpauth:// URI (optional) <input name="uri" class="mono" placeholder="otpauth://totp/Issuer:account?secret=…"></label>
+    <div class="row">
+      <label>App / issuer <input name="app" maxlength="64"></label>
+      <label>Account <input name="account" required maxlength="64"></label>
+    </div>
+    <label>Secret (base32) <input name="secret" class="mono" required></label>
+    <div class="row">
+      <label>Type <select name="kind"><option value="totp">TOTP (time)</option><option value="hotp">HOTP (counter)</option></select></label>
+      <label>Algorithm <select name="algorithm"><option>SHA1</option><option>SHA256</option></select></label>
+      <label>Digits <input name="digits" type="number" min="4" max="10" value="6"></label>
+      <label>Time step (s) <input name="timestep" type="number" min="1" max="65535" value="30"></label>
+    </div>
+    <label class="check"><input name="button" type="checkbox"> Require a button press to show the code</label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Add to key</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-t2-btnhotp">
+  <form method="dialog" data-cmd="t2otp_set_button_hotp">
+    <h3>Button HOTP (typed as keystrokes)</h3>
+    <p class="hint">A separate HOTP secret the key types when its button is pressed outside any session. Leave the secret empty to change only the options.</p>
+    <label>Secret (base32) <input name="secret" class="mono"></label>
+    <label>Digits <select name="digits"><option>6</option><option>8</option></select></label>
+    <label class="check"><input name="no_enter" type="checkbox"> Do not press Enter after the code</label>
+    <label class="check"><input name="long_press" type="checkbox"> Require a 2-second hold</label>
+    <label class="check"><input name="numpad" type="checkbox"> Type with numeric-keypad scancodes</label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="delete" class="danger" formnovalidate id="btn-t2-btnhotp-delete">Remove seed</button><button value="ok" class="primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-t2-pin">
+  <form method="dialog" data-cmd="t2otp_pin">
+    <h3 id="t2-pin-title">Set OTP PIN</h3>
+    <p class="hint">Protects the stored accounts: codes are only readable after the PIN is verified. Numeric PINs need 6+ digits (no sequences, repeats or palindromes); alphanumeric ones 10+ characters with two character classes. 100 attempts before lock-out.</p>
+    <label id="t2-curpin-wrap" hidden>Current PIN <input name="current" type="password"></label>
+    <label>New PIN <input name="pin" type="password"></label>
+    <label>Repeat <input name="repeat" type="password" data-match="pin"></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="remove" class="danger" formnovalidate id="btn-t2-pin-remove" hidden>Remove PIN</button><button value="ok" class="primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-t2-ifaces">
+  <form method="dialog" data-cmd="t2otp_set_keyboard_interface">
+    <h3>USB interfaces</h3>
+    <p class="hint">Only the keyboard interface (HOTP typed as keystrokes) can be switched here. FIDO and the smart-card interface are shown for information and stay as they are — disabling them could leave the key unreachable.</p>
+    <label class="check"><input name="fido" type="checkbox" disabled> FIDO (CTAP HID)</label>
+    <label class="check"><input name="keyboard" type="checkbox"> Keyboard — HOTP on button press</label>
+    <label class="check"><input name="ccid" type="checkbox" disabled checked> Smart card (CCID) — used by this app</label>
+    <p class="hint">The key re-enumerates on USB after the change; reconnect afterwards.</p>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Apply</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-oath-password">
+  <form method="dialog" data-cmd="oath_set_password">
+    <h3>Set applet password</h3>
+    <p class="hint">Required to list or use accounts. Unlike a PIN, wrong attempts are not counted.</p>
+    <label>New password <input name="password" type="password" required></label>
+    <label>Repeat <input name="repeat" type="password" data-match="password" required></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Set password</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-fido-passkey">
+  <form method="dialog" data-cmd="fido_update_passkey">
+    <h3>Edit passkey</h3>
+    <label>User name <input name="user_name" maxlength="64"></label>
+    <label>Display name <input name="display_name" maxlength="64"></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-confirm">
+  <form method="dialog">
+    <h3 id="confirm-title"></h3>
+    <p id="confirm-body"></p>
+    <label id="confirm-mgm-wrap" hidden>Admin PIN <input id="confirm-mgm" class="mono"></label>
+    <label id="confirm-pin-wrap" hidden>PIN <input id="confirm-pin" type="password"></label>
+    <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="danger" id="confirm-ok">Confirm</button></menu>
+  </form>
+</dialog>
+
+<div id="progress" hidden>
+  <div class="card">
+    <div class="bar"><i></i></div>
+    <p id="progress-text"></p>
+    <p class="hint"><span id="progress-elapsed">0 s</span> elapsed</p>
+  </div>
+</div>
+<div id="pcsc-warn" hidden style="background:#fff8e6;border-bottom:1px solid #f0d98a;color:#8a6d000;padding:10px 16px;font-size:13.5px;display:flex;gap:10px;align-items:center">
+  <svg viewBox="0 0 24 24" style="width:18px;height:18px;flex:none;fill:none;stroke:#b8860b;stroke-width:1.8"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+  <span id="pcsc-warn-text" style="flex:1;white-space:pre-line"></span>
+  <button id="pcsc-warn-x" class="ghost" style="flex:none">Dismiss</button>
+</div>
+<div id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

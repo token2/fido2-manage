@@ -1,0 +1,4 @@
+usr/lib/*/libt2piv.so
+usr/lib/*/libt2piv.a
+usr/lib/*/pkgconfig
+usr/include/t2piv

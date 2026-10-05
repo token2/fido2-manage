@@ -1,0 +1,16 @@
+= token2-piv-tool
+
+Token2 build of Yubico's yubico-piv-tool (BSD-2-Clause, see COPYING). Same
+code, same commands, with Token2 defaults:
+
+* CLI binary: `token2-piv-tool` (drop-in replacement for `yubico-piv-tool`)
+* PKCS#11 module: `libt2cs11` (drop-in replacement for `libykcs11`)
+* PIV library: `libt2piv` — C API `t2piv_*` (header `t2piv.h`), PKCS#11 vendor attributes `CKA_TOKEN2_*` (header `pkcs11t2.h`)
+* the PIV management key is called the Admin PIN, as on other Token2 tooling
+* default reader filter `-r TOKEN2`
+* default management key `865362865362865362865362865362865362865362865362`
+* PKCS#11 manufacturer/model: Token2 (www.token2.com) / Token2 PIV
+* attestation extensions emitted under 1.3.6.1.4.1.66563.3.x (Token2 PEN 66563)
+
+Rebuilt from upstream with rebrand.sh; Yubico's copyright notices are kept as
+required by the license. Upstream: https://github.com/Yubico/yubico-piv-tool

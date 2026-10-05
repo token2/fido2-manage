@@ -1,0 +1,227 @@
+name: Windows Build
+# This machine tests building the software on a both 32 and 64 Windows architecture.
+
+on: [push]
+
+jobs:
+
+  source_build:
+    name: Build dist with Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Install prerequisites
+        run: |
+          set -x
+          sudo apt install libpcsclite-dev check gengetopt help2man zlib1g-dev
+      - name: Create tar.gz
+        run: |
+          set -x
+          mkdir $GITHUB_WORKSPACE/artifact
+          ./resources/release/make_src_dist.sh
+          mv $GITHUB_WORKSPACE/token2-piv-tool-.tar.gz $GITHUB_WORKSPACE/artifact/
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: token2-piv-tool-src
+          path: artifact
+
+  build:
+    name: Build and Test on Windows
+    needs: source_build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            arch: x86
+            arch_cmake: Win32
+          - os: windows-2025
+            arch: x64
+            arch_cmake: x64
+          - os: windows-2022
+            arch: x86
+            arch_cmake: Win32
+          - os: windows-2022
+            arch: x64
+            arch_cmake: x64
+
+    steps:
+      - name: Download source from source work
+        uses: actions/download-artifact@v4
+        with:
+          name: token2-piv-tool-src
+
+      - name: Extract source
+        run: |
+          Set-PSDebug -Trace 1
+          tar xf token2-piv-tool-.tar.gz
+
+      - name: install prerequisites
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          Set-PSDebug -Trace 1
+          vcpkg update
+          vcpkg install openssl:$env:ARCH-windows
+          vcpkg install getopt:$env:ARCH-windows
+          vcpkg install check:$env:ARCH-windows
+          vcpkg install zlib:$env:ARCH-windows
+
+      - name: build
+        env:
+          ARCH_CMAKE: ${{ matrix.arch_cmake }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          Set-PSDebug -Trace 1
+          
+          $env:OPENSSL_ROOT_DIR="C:\vcpkg\packages\openssl_$env:ARCH-windows"
+          $env:Path="C:\vcpkg\packages\zlib_$env:ARCH-windows\bin;$env:Path"
+          #$env:include ="C:\vcpkg\packages\openssl_$env:ARCH-windows/include;$env:include"
+
+          cd token2-piv-tool-
+          mkdir build; cd build
+          cmake -A $env:ARCH_CMAKE -DVERBOSE_CMAKE=ON -DBACKEND=winscard `
+                  -DGETOPT_LIB_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/lib -DGETOPT_INCLUDE_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/include `
+                  -DZLIB_LIB_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/lib" -DZLIB_INCL_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/include" -DZLIB_ROOT="C:\vcpkg/packages/zlib_$env:ARCH-windows" `
+                  -DCHECK_PATH="C:/vcpkg/packages/check_$env:ARCH-windows" ..
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build . -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:Path +=";C:/vcpkg/packages/check_$env:ARCH-windows/bin;C:/vcpkg/packages/openssl_$env:ARCH-windows/bin;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\lib\Debug;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\t2cs11\Debug"
+          ctest.exe -C Debug
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build with T2CS11_DBG is set
+        env:
+          ARCH_CMAKE: ${{ matrix.arch_cmake }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          Set-PSDebug -Trace 1
+          
+          $env:OPENSSL_ROOT_DIR="C:\vcpkg\packages\openssl_$env:ARCH-windows"          
+          $env:Path ="C:\vcpkg\packages\zlib_$env:ARCH-windows\bin;$env:Path"
+          #$env:include ="C:\vcpkg\packages\openssl_$env:ARCH-windows/include;$env:include"
+
+          cd token2-piv-tool-
+          rm -r build; mkdir build; cd build
+          cmake .. -A $env:ARCH_CMAKE -DVERBOSE_CMAKE=ON -DBACKEND=winscard -DT2CS11_DBG=3 `
+                  -DGETOPT_LIB_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/lib -DGETOPT_INCLUDE_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/include `
+                  -DZLIB_LIB_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/lib" -DZLIB_INCL_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/include" -DZLIB_ROOT="C:\vcpkg/packages/zlib_$env:ARCH-windows" `
+                  -DCHECK_PATH=C:/vcpkg/packages/check_$env:ARCH-windows
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build . -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:Path +=";C:/vcpkg/packages/check_$env:ARCH-windows/bin;C:/vcpkg/packages/openssl_$env:ARCH-windows/bin;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\lib\Debug;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\t2cs11\Debug"
+          ctest.exe -C Debug
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build only library (no CLI and no t2cs11)
+        env:
+          ARCH_CMAKE: ${{ matrix.arch_cmake }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          Set-PSDebug -Trace 1
+          $env:Path ="C:\vcpkg\packages\openssl_$env:ARCH-windows;C:\vcpkg\packages\zlib_$env:ARCH-windows\bin;$env:Path"
+          $env:include ="C:\vcpkg\packages\openssl_$env:ARCH-windows/include;$env:include"
+
+          cd token2-piv-tool-
+          rm -r build; mkdir build; cd build
+          cmake .. -A $env:ARCH_CMAKE -DVERBOSE_CMAKE=ON -DBACKEND=winscard  -DBUILD_ONLY_LIB=ON `
+                -DGETOPT_LIB_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/lib -DGETOPT_INCLUDE_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/include `
+                -DZLIB_LIB_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/lib" -DZLIB_INCL_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/include" -DZLIB_ROOT="C:\vcpkg/packages/zlib_$env:ARCH-windows" `
+                -DCHECK_PATH=C:/vcpkg/packages/check_$env:ARCH-windows
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build . -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:Path +=";C:/vcpkg/packages/check_$env:ARCH-windows/bin;C:/vcpkg/packages/openssl_$env:ARCH-windows/bin;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\lib\Debug;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\t2cs11\Debug"
+          ctest.exe -C Debug
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build only dynamic libaries
+        env:
+          ARCH_CMAKE: ${{ matrix.arch_cmake }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          Set-PSDebug -Trace 1
+          $env:Path ="C:\vcpkg\packages\openssl_$env:ARCH-windows;C:\vcpkg\packages\zlib_$env:ARCH-windows\bin;$env:Path"
+          $env:include ="C:\vcpkg\packages\openssl_$env:ARCH-windows/include;$env:include"
+
+          cd token2-piv-tool-
+          rm -r build; mkdir build; cd build
+          cmake .. -A $env:ARCH_CMAKE -DVERBOSE_CMAKE=ON -DBACKEND=winscard -DBUILD_STATIC_LIB=OFF `
+                -DGETOPT_LIB_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/lib -DGETOPT_INCLUDE_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/include `
+                -DZLIB_LIB_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/lib" -DZLIB_INCL_DIR="C:\vcpkg/packages/zlib_$env:ARCH-windows/include" -DZLIB_ROOT="C:\vcpkg/packages/zlib_$env:ARCH-windows" `
+                -DCHECK_PATH=C:/vcpkg/packages/check_$env:ARCH-windows 
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build . -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:Path +=";C:/vcpkg/packages/check_$env:ARCH-windows/bin;C:/vcpkg/packages/openssl_$env:ARCH-windows/bin;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\lib\Debug;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\t2cs11\Debug"
+          ctest.exe -C Debug
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  build_no_zlib:
+    name: Build and Test on Windows where zlib is not installed
+    needs: source_build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            arch: x86
+            arch_cmake: Win32
+          - os: windows-2025
+            arch: x64
+            arch_cmake: x64
+          - os: windows-2022
+            arch: x86
+            arch_cmake: Win32
+          - os: windows-2022
+            arch: x64
+            arch_cmake: x64
+
+    steps:
+      - name: Download source from source work
+        uses: actions/download-artifact@v4
+        with:
+          name: token2-piv-tool-src
+
+      - name: Extract source
+        run: |
+          Set-PSDebug -Trace 1
+          tar xf token2-piv-tool-.tar.gz
+
+      - name: install prerequisites
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          Set-PSDebug -Trace 1
+          vcpkg install openssl:$env:ARCH-windows
+          vcpkg install getopt:$env:ARCH-windows
+          vcpkg install check:$env:ARCH-windows
+
+      - name: build
+        env:
+          ARCH_CMAKE: ${{ matrix.arch_cmake }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          Set-PSDebug -Trace 1
+          $env:Path ="C:\vcpkg\packages\openssl_$env:ARCH-windows;$env:Path"
+          $env:include ="C:\vcpkg\packages\openssl_$env:ARCH-windows/include;$env:include"
+
+          cd token2-piv-tool-
+          mkdir build; cd build
+          cmake .. -A $env:ARCH_CMAKE -DVERBOSE_CMAKE=ON -DBACKEND=winscard -DENABLE_CERT_COMPRESS=OFF `
+                -DGETOPT_LIB_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/lib -DGETOPT_INCLUDE_DIR=C:/vcpkg/packages/getopt-win32_$env:ARCH-windows/include `
+                -DCHECK_PATH=C:/vcpkg/packages/check_$env:ARCH-windows
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build . -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:Path +=";C:/vcpkg/packages/check_$env:ARCH-windows/bin;C:/vcpkg/packages/openssl_$env:ARCH-windows/bin;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\lib\Debug;$env:GITHUB_WORKSPACE\token2-piv-tool-\build\t2cs11\Debug"
+          ctest.exe -C Debug
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

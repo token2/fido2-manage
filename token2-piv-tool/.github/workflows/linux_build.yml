@@ -1,0 +1,170 @@
+name: Ubuntu Build
+# This workflow is triggered on pushes to the repository. This is a test machine and nothing produced here will be used
+# in the official release
+on: [push]
+
+jobs:
+
+  ubuntu_builds:
+    name: Build with various configurations
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+          - os: ubuntu-22.04
+
+    steps:
+      # This action checks-out the repository under $GITHUB_WORKSPACE, so the workflow can access it.
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: Install prerequisites
+        run: |
+          set -x
+          sudo apt install libpcsclite-dev check gengetopt help2man openssl opensc zlib1g-dev
+
+      - name: Build and install
+        run: |
+          set -x
+          mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON
+          make
+          make test
+
+          ldd tool/token2-piv-tool | grep libcrypto.so
+          ldd lib/libt2piv.so | grep libcrypto.so
+          ldd t2cs11/libt2cs11.so | grep libcrypto.so
+
+          ./tool/token2-piv-tool --help | grep "Usage: token2-piv-tool"
+          pkcs11-tool --module t2cs11/libt2cs11.so --show-info | grep Yubico
+
+          sudo make install
+          sudo ldconfig
+
+          cd ..
+          LIBDIR=$(cmake -L | sed -n "s/^.*T2PIV_INSTALL_LIB_DIR:PATH=\s*\(\S*\).*$/\1/p")
+          BINDIR=$(cmake -L | sed -n "s/^.*T2PIV_INSTALL_BIN_DIR:PATH=\s*\(\S*\).*$/\1/p")
+
+          echo "libdir: $LIBDIR"
+          echo "bindir: $BINDIR"
+
+          token2-piv-tool --help | grep "Usage: token2-piv-tool"
+
+          objdump -T $LIBDIR/libt2cs11.so | grep C_Sign
+          pkcs11-tool --module $LIBDIR/libt2cs11.so --show-info | grep Yubico
+
+          sudo rm $BINDIR/token2-piv-tool
+          sudo rm $LIBDIR/libyk*
+
+      - name: Build and install debian package
+        run: |
+          set -x
+          mkdir build_dir;
+          cd build_dir; cmake -DCMAKE_INSTALL_PREFIX=../debian/tmp/usr .. -B .
+          cd ..
+          make -C build_dir
+          cd build_dir; cmake -P cmake_install.cmake
+          cd ..
+          mkdir debian/tmp/DEBIAN
+          dpkg-gencontrol -ptoken2-piv-tool
+          dpkg --build debian/tmp build_dir/
+          cd build_dir
+          sudo apt install ./token2-piv-tool_*_amd64.deb
+
+          (set +e; token2-piv-tool -a status; true) 2>&1 >/dev/null | grep "Failed to connect to yubikey."
+
+      - name: Build using OpenSSL static link
+        run: |
+          set -x
+
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DOPENSSL_STATIC_LINK=ON -B .
+          make
+          make test
+
+          ldd tool/token2-piv-tool | grep libcrypto.so | wc -l | grep 0
+          ldd lib/libt2piv.so | grep libcrypto.so | wc -l | grep 0
+          ldd t2cs11/libt2cs11.so | grep libcrypto.so | wc -l | grep 0
+
+          pkcs11-tool --module t2cs11/libt2cs11.so --show-info | grep Yubico
+
+          sudo make install
+          sudo ldconfig
+
+          token2-piv-tool --help | grep "Usage: token2-piv-tool"
+
+          cd ..
+          LIBDIR=$(cmake -L | sed -n "s/^.*T2PIV_INSTALL_LIB_DIR:PATH=\s*\(\S*\).*$/\1/p")
+          pkcs11-tool --module $LIBDIR/libt2cs11.so --show-info | grep Yubico
+
+      - name: Build with T2CS11_DBG is set
+        run: |
+          set -x
+
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DT2CS11_DBG=3 -B .
+          make
+          make test
+
+          ldd t2cs11/libt2cs11.so | grep libcrypto.so
+
+          pkcs11-tool --module t2cs11/libt2cs11.so --show-info | grep Yubico
+
+      - name: Build only library (no CLI and no t2cs11)
+        run: |
+          set -x
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DBUILD_ONLY_LIB=ON -B .
+          make
+          make test
+
+      - name: Build only dynamic libaries
+        run: |
+          set -x
+          rm -rf build; mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DBUILD_STATIC_LIB=OFF -B .
+          make
+          make test
+
+  no_compression_build:
+    name: Build without zlib
+    runs-on: ubuntu-latest
+    steps:
+      # This action checks-out the repository under $GITHUB_WORKSPACE, so the workflow can access it.
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: Install prerequisites
+        run: |
+          set -x
+          sudo apt install libpcsclite-dev check gengetopt help2man openssl opensc
+
+      - name: Build and install
+        run: |
+          set -x
+          mkdir build; cd build
+          cmake .. -DVERBOSE_CMAKE=ON -DENABLE_CERT_COMPRESS=OFF
+          make
+          make test
+
+          ldd tool/token2-piv-tool | grep libcrypto.so
+          ldd lib/libt2piv.so | grep libcrypto.so
+          ldd t2cs11/libt2cs11.so | grep libcrypto.so
+
+          ./tool/token2-piv-tool --help | grep "Usage: token2-piv-tool"
+          pkcs11-tool --module t2cs11/libt2cs11.so --show-info | grep Yubico
+
+          sudo make install
+          sudo ldconfig
+
+          cd ..
+          LIBDIR=$(cmake -L | sed -n "s/^.*T2PIV_INSTALL_LIB_DIR:PATH=\s*\(\S*\).*$/\1/p")
+          BINDIR=$(cmake -L | sed -n "s/^.*T2PIV_INSTALL_BIN_DIR:PATH=\s*\(\S*\).*$/\1/p")
+
+          token2-piv-tool --help | grep "Usage: token2-piv-tool"
+
+          objdump -T $LIBDIR/libt2cs11.so | grep C_Sign
+          pkcs11-tool --module $LIBDIR/libt2cs11.so --show-info | grep Yubico
+
+          sudo rm $BINDIR/token2-piv-tool
+          sudo rm $LIBDIR/libyk*

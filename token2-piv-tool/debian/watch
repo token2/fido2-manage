@@ -1,0 +1,3 @@
+version=3
+opts=pgpsigurlmangle=s/$/.sig/ \
+  https://developers.yubico.com/token2-piv-tool/Releases/ token2-piv-tool-(.*)\.tar\.gz
