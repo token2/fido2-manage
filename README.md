@@ -58,6 +58,14 @@ The same package bundles:
   other CTAP2 / PIV devices.
 - `token2-fido2-token` / `-cred` / `-assert` — the upstream libfido2 tools.
 
+## Screenshots of the GUI
+
+<img width="900" height="720" alt="image" src="https://github.com/user-attachments/assets/9a7bcf33-1d4f-4008-bb1a-2ecd80c65c86" />
+<img width="900" height="720" alt="image" src="https://github.com/user-attachments/assets/9b54983b-f394-45e9-bc18-6346451928a0" />
+<img width="900" height="720" alt="image" src="https://github.com/user-attachments/assets/a98f527a-ef90-40fe-bd27-844891818549" />
+<img width="900" height="720" alt="image" src="https://github.com/user-attachments/assets/c146da74-19de-4eb0-8924-62254230f69c" />
+
+
 ## Download / install
 
 Pre-built packages published by the maintainers on the Releases page for each
