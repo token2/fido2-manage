@@ -1345,8 +1345,25 @@ async function oathConnectHid() {
     if (page === "home") renderHome(); renderIdent();
     return true;
   } catch (e) {
-    toast("OTP over USB-HID failed: " + e, true);
-    return false;
+    // Legacy keys have no Token2 OTP applet (SELECT returns 6D00). Their TOTP is in
+    // the standard OATH (YKOATH) applet instead — try that over the same HID tunnel.
+    try {
+      oathInfo = await busy(() => invoke("oath_connect_hid", { path: dev.path }));
+      _otpHidActive = true;
+      await refreshCaps();
+      renderOathInfo();
+      if (page === "oath") setMode("oath");
+      $("#oath-unlock-label") && ($("#oath-unlock-label").textContent = "Applet password");
+      $("#oath-unlock-hint") && ($("#oath-unlock-hint").textContent = "This key's OATH applet is password-protected.");
+      $("#oath-unlock").hidden = oathInfo.unlocked;
+      $("#oath-accounts").hidden = !oathInfo.unlocked;
+      if (oathInfo.unlocked) await loadOath();
+      if (page === "home") renderHome(); renderIdent();
+      return true;
+    } catch (e2) {
+      toast("OTP over USB-HID failed: " + e2, true);
+      return false;
+    }
   }
 }
 async function oathDisconnect() {
@@ -2238,7 +2255,7 @@ async function connectPresent(p, want) {
   if (want === "fido") {
     await connectFido(p);
   } else if (want === "oath") {
-    await oathConnect(reader).catch(() => {});
+    await oathConnect(reader).catch((e) => { plog("oathConnect ERR: " + e); });
   } else if (want === "piv" && reader) {
     await connect(reader).catch(() => {});
   }
