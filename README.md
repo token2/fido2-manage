@@ -43,7 +43,7 @@ existing scripts keep working.
 
 Token2 keys expose their FIDO applet over a **smart-card (CCID/PC-SC)** interface,
 so fido2-manage works **without administrator rights** on Windows for those keys
-(USB and NFC). Raw-HID FIDO keys (e.g. a YubiKey over USB) need an **elevated**
+(USB only). Raw-HID FIDO keys (e.g. a YubiKey over USB) or NFC transport need an **elevated**
 terminal. On macOS and Linux no elevation is required.
 
 ## Also included
