@@ -1,4 +1,4 @@
-//! FIDO2 management through upstream libfido2 built with USE_PCSC: Token2 keys
+//! FIDO2 management through upstream libfido2 built with USE_PCSC (NFC and Contact): Token2 keys
 //! expose the FIDO applet over CCID, so they enumerate as `pcsc://` devices on
 //! USB and NFC alike, with no HID access (and no elevation) required.
 
