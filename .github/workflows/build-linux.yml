@@ -84,6 +84,43 @@ jobs:
           # move the shared libs into usr/lib (and keep a copy next to the bin for safety)
           cp "$RUNNER_TEMP/artifacts/portable/"*.so* "$APPDIR/usr/lib/" 2>/dev/null || true
           chmod +x "$APPDIR/usr/bin/"* 2>/dev/null || true
+          # ---- bundle WebKitGTK so the AppImage runs on hosts that do NOT ship
+          #      libwebkit2gtk-4.1 (Fedora atomic / Universal Blue: Aurora, Kinoite,
+          #      Bazzite, Silverblue). We inject WebKit + JavaScriptCore + their
+          #      WebKit-private dependency closure, but deliberately leave the host
+          #      display stack (glibc, GL/EGL/driver, X11/Wayland, glib, GTK, pango,
+          #      cairo, libstdc++) to the host so the renderer matches the running
+          #      desktop. Without this the app crashes at launch with
+          #      "libwebkit2gtk-4.1.so.0: cannot open shared object file".
+          WK_SO=$(ls /usr/lib/*/libwebkit2gtk-4.1.so.0 2>/dev/null | head -1)
+          if [ -n "$WK_SO" ]; then
+            WK_LIBDIR=$(dirname "$WK_SO")
+            # libraries that MUST be resolved from the host (never bundle these)
+            EXCLUDE='^(ld-linux|ld-musl|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl|libgcc_s|libselinux|libcap|libGL|libGLX|libGLdispatch|libOpenGL|libEGL|libGLESv|libgbm|libdrm|libglapi|libxshmfence|libX11|libXext|libXau|libXdmcp|libxcb|libXrender|libXi|libXrandr|libXfixes|libXcursor|libXcomposite|libXdamage|libXinerama|libXtst|libXt|libSM|libICE|libXss|libxkbcommon|libwayland|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libgthread-2\.0|libgtk-3|libgdk-3|libgdk_pixbuf-2\.0|libpango|libpangocairo|libpangoft2|libcairo|libatk|libharfbuzz|libfontconfig|libfreetype|libasound|libpulse|libsystemd|libudev|libdbus-1|libstdc\+\+)\.'
+            # helper processes (WebKitNetworkProcess / WebKitWebProcess + injected bundle)
+            if [ -d "$WK_LIBDIR/webkit2gtk-4.1" ]; then
+              cp -r "$WK_LIBDIR/webkit2gtk-4.1" "$APPDIR/usr/lib/webkit2gtk-4.1"
+            fi
+            # recursive dependency closure of WebKit, JSC, the helper processes and
+            # the GUI binary; copy everything that is NOT on the host-resolve list
+            ROOTS="$WK_SO"
+            for extra in "$WK_LIBDIR"/libjavascriptcoregtk-4.1.so.0 \
+                         "$APPDIR/usr/lib/webkit2gtk-4.1/WebKitNetworkProcess" \
+                         "$APPDIR/usr/lib/webkit2gtk-4.1/WebKitWebProcess" \
+                         "$APPDIR/usr/bin/token2-key-manager"; do
+              [ -e "$extra" ] && ROOTS="$ROOTS $extra"
+            done
+            for root in $ROOTS; do
+              ldd "$root" 2>/dev/null | awk '/=> \//{print $3}'
+            done | sort -u | while read -r lib; do
+              b=$(basename "$lib")
+              echo "$b" | grep -Eq "$EXCLUDE" && continue
+              cp -Ln "$lib" "$APPDIR/usr/lib/" 2>/dev/null || true
+            done
+            echo "WebKit bundled from $WK_LIBDIR:"; ls "$APPDIR/usr/lib" | grep -Ei "webkit|javascriptcore|soup|gst" || true
+          else
+            echo "WARNING: libwebkit2gtk-4.1 not found on builder; AppImage will rely on host WebKit"
+          fi
           # ---- icon (AppImage needs it in several places) ----
           ICON=token2-piv-gui/src-tauri/icons/icon.png
           if [ -f "$ICON" ]; then
@@ -109,6 +146,14 @@ jobs:
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
           export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/bin:$LD_LIBRARY_PATH"
+          # If WebKit was bundled, point it at the bundled helper processes and
+          # disable the DMABUF / compositing renderer paths that fail under some
+          # GPU drivers and on immutable distros (black window / early crash).
+          if [ -d "$HERE/usr/lib/webkit2gtk-4.1" ]; then
+            export WEBKIT_EXEC_PATH="$HERE/usr/lib/webkit2gtk-4.1"
+          fi
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1
+          export WEBKIT_DISABLE_DMABUF_RENDERER=1
           # Multi-binary AppImage. Pick which bundled program to run:
           #  1) if invoked by a name matching a bundled tool (symlink the AppImage to
           #     "fido2-manage" or set ARGV0), run that tool;
