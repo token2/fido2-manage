@@ -36,6 +36,21 @@ main deliverable.
 - `-reset` only works shortly after the key is plugged in (CTAP power-up window):
   unplug and replug the key, run the command, and touch it when it blinks.
 
+- Use `-json` or `--json` to output data in JSON format, making it easier to process in scripts and other tools.
+
+  **Example:**
+  ```powershell
+  .\fido2-manage.exe -storage -device 1 -json -pin PIN_OF_THE_KEY
+  ```
+
+  **Output:**
+  ```json
+  {
+    "existing": 4,
+    "remaining": 296
+  }
+  ```
+
 The flag set is **drop-in compatible** with the classic `fido2-manage.exe`, so
 existing scripts keep working.
 
