@@ -148,6 +148,11 @@ if ($LASTEXITCODE) {
     Pop-Location
     throw "applying libfido2-token2.patch failed (is deps\libfido2 a clean clone at tag $LibFido2Tag?)"
 }
+git apply --ignore-whitespace (Join-Path $Root "libfido2-json.patch")
+if ($LASTEXITCODE) {
+    Pop-Location
+    throw "applying libfido2-json.patch failed (is deps\libfido2 a clean clone at tag $LibFido2Tag?)"
+}
 Pop-Location
 New-Item -ItemType File -Force $patchMarker | Out-Null
 # ship the library under the Token2 name (API unchanged)

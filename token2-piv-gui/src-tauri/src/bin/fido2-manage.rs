@@ -37,7 +37,24 @@ fn main() {
     }
     std::process::exit(match run() {
         Ok(()) => 0,
-        Err(e) => { eprintln!("Error: {e}"); 1 }
+        Err(e) => {
+            // In -json/--json mode, report the error as a JSON object on stdout
+            // (with a nonzero exit) so a consumer can always parse stdout as JSON.
+            let json = std::env::args().any(|a| {
+                let l = a.to_lowercase();
+                l == "-json" || l == "--json"
+            });
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({"ok": false, "error": e}))
+                        .unwrap_or_else(|_| format!("{{\"ok\":false,\"error\":\"{e}\"}}"))
+                );
+            } else {
+                eprintln!("Error: {e}");
+            }
+            1
+        }
     });
 }
 
@@ -227,9 +244,28 @@ fn pin_arg(args: &Args, confirm_new: bool) -> R<String> {
 
 fn run() -> R<()> {
     let args = Args::parse();
+    let json = args.has("-json") || args.has("--json");
 
-    if args.has("-list") || (args.flags.is_empty() && args.vals.is_empty()) {
+    if args.has("-list") || (!json && args.flags.is_empty() && args.vals.is_empty())
+        || (json && args.flags.iter().all(|f| f == "-json" || f == "--json") && args.vals.is_empty())
+    {
         let list = devices()?;
+        if json {
+            // array of device objects with a 1-based "index" that matches -device N
+            let arr: Vec<serde_json::Value> = list
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    let mut v = serde_json::to_value(d).unwrap_or_default();
+                    if let Some(o) = v.as_object_mut() {
+                        o.insert("index".into(), serde_json::json!(i + 1));
+                    }
+                    v
+                })
+                .collect();
+            emit_json(&arr);
+            return Ok(());
+        }
         if list.is_empty() { println!("No FIDO2 devices found."); return Ok(()); }
         for (i, d) in list.iter().enumerate() {
             let name = if !d.product.is_empty() { &d.product } else { &d.manufacturer };
@@ -242,7 +278,15 @@ fn run() -> R<()> {
     if args.has("-info") {
         let prod = device_name(&args).unwrap_or_default();
         let (s, info) = open_device(&args)?;
-        print_info(&prod, &info);
+        if json {
+            let mut v = serde_json::to_value(&info).unwrap_or_default();
+            if let Some(o) = v.as_object_mut() {
+                o.insert("product".into(), serde_json::Value::String(prod.clone()));
+            }
+            emit_json(&v);
+        } else {
+            print_info(&prod, &info);
+        }
         drop(s);
         return Ok(());
     }
@@ -251,6 +295,10 @@ fn run() -> R<()> {
         let (s, _) = open_device(&args)?;
         let pin = pin_arg(&args, false)?;
         let inv = s.list_passkeys(&pin)?;
+        if json {
+            emit_json(&serde_json::json!({"existing": inv.existing, "remaining": inv.remaining}));
+            return Ok(());
+        }
         println!("resident credentials: {} stored, {} free", inv.existing, inv.remaining);
         return Ok(());
     }
@@ -260,10 +308,17 @@ fn run() -> R<()> {
         let pin = pin_arg(&args, false)?;
         let inv = s.list_passkeys(&pin)?;
         let domain = args.val("-domain");
+        let matches = |rp: &fido::RelyingParty| match &domain {
+            Some(d) => rp.id.eq_ignore_ascii_case(d) || rp.name.eq_ignore_ascii_case(d),
+            None => true,
+        };
+        if json {
+            let rps: Vec<&fido::RelyingParty> = inv.rps.iter().filter(|rp| matches(rp)).collect();
+            emit_json(&rps);
+            return Ok(());
+        }
         for rp in &inv.rps {
-            if let Some(ref d) = domain {
-                if !rp.id.eq_ignore_ascii_case(d) && !rp.name.eq_ignore_ascii_case(d) { continue; }
-            }
+            if !matches(rp) { continue; }
             println!("RP: {} ({})", rp.id, rp.name);
             if domain.is_some() {
                 for c in &rp.credentials {
@@ -285,8 +340,7 @@ fn run() -> R<()> {
         std::io::stdin().read_line(&mut c).ok();
         if c.trim() != "YES" { return Err("cancelled".into()); }
         s.delete_passkey(&cred, &pin)?;
-        println!("Credential deleted.");
-        return Ok(());
+        return done(json, "delete", "Credential deleted.", serde_json::json!({"credential": cred}));
     }
 
     if args.has("-setpin") {
@@ -301,8 +355,7 @@ fn run() -> R<()> {
             }
         };
         s.set_pin(&new, None)?;
-        println!("PIN set.");
-        return Ok(());
+        return done(json, "setPIN", "PIN set.", serde_json::json!({}));
     }
 
     if args.has("-changepin") {
@@ -318,8 +371,7 @@ fn run() -> R<()> {
             }
         };
         s.set_pin(&new, Some(&old))?;
-        println!("PIN changed.");
-        return Ok(());
+        return done(json, "changePIN", "PIN changed.", serde_json::json!({}));
     }
 
     if args.has("-reset") {
@@ -328,16 +380,15 @@ fn run() -> R<()> {
         eprint!("Touch the key when it blinks… ");
         std::io::stderr().flush().ok();
         s.reset()?;
-        println!("\nFIDO applet reset.");
-        return Ok(());
+        if !json { println!(); }
+        return done(json, "reset", "FIDO applet reset.", serde_json::json!({}));
     }
 
     if args.has("-forcepinchange") {
         let (s, _) = open_device(&args)?;
         let pin = pin_arg(&args, false)?;
         s.force_pin_change(&pin)?;
-        println!("The key will require a PIN change at next use.");
-        return Ok(());
+        return done(json, "forcePINchange", "The key will require a PIN change at next use.", serde_json::json!({}));
     }
 
     if let Some(m) = args.val("-setminimumpin") {
@@ -345,8 +396,7 @@ fn run() -> R<()> {
         let (s, _) = open_device(&args)?;
         let pin = pin_arg(&args, false)?;
         s.set_min_pin(len, &pin)?;
-        println!("Minimum PIN length set to {len}.");
-        return Ok(());
+        return done(json, "setMinimumPIN", &format!("Minimum PIN length set to {len}."), serde_json::json!({"min_pin_len": len}));
     }
 
     if args.has("-uvs") || args.has("-uvd") {
@@ -354,14 +404,19 @@ fn run() -> R<()> {
         let (s, _) = open_device(&args)?;
         let pin = pin_arg(&args, false)?;
         s.set_always_uv(enable, &pin)?;
-        println!("Always-UV {}.", if enable { "enabled" } else { "disabled" });
-        return Ok(());
+        return done(json, if enable { "uvs" } else { "uvd" },
+                    &format!("Always-UV {}.", if enable { "enabled" } else { "disabled" }),
+                    serde_json::json!({"always_uv": enable}));
     }
 
     if args.has("-fingerprintlist") {
         let (s, _) = open_device(&args)?;
         let pin = pin_arg(&args, false)?;
         let bio = s.list_bio(&pin)?;
+        if json {
+            emit_json(&bio.templates);
+            return Ok(());
+        }
         if bio.templates.is_empty() { println!("No fingerprints enrolled."); }
         for (i, t) in bio.templates.iter().enumerate() {
             println!("{}: {}  (id {})", i + 1,
@@ -375,8 +430,7 @@ fn run() -> R<()> {
         let pin = pin_arg(&args, false)?;
         let hex_id = resolve_bio_id(&s, &pin, &id)?;
         s.delete_bio(&hex_id, &pin)?;
-        println!("Fingerprint deleted.");
-        return Ok(());
+        return done(json, "deletefingerprint", "Fingerprint deleted.", serde_json::json!({"id": hex_id}));
     }
 
     if let Some(id) = args.val("-renamefingerprint") {
@@ -385,23 +439,45 @@ fn run() -> R<()> {
         let pin = pin_arg(&args, false)?;
         let hex_id = resolve_bio_id(&s, &pin, &id)?;
         s.rename_bio(&hex_id, &name, &pin)?;
-        println!("Fingerprint renamed to {name}.");
-        return Ok(());
+        return done(json, "renamefingerprint", &format!("Fingerprint renamed to {name}."), serde_json::json!({"id": hex_id, "name": name}));
     }
 
     if args.has("-fingerprint") {
         let (s, _) = open_device(&args)?;
         let pin = pin_arg(&args, false)?;
         let name = args.val("-fingerprintname").unwrap_or_default();
-        println!("Enrolling a fingerprint — touch the sensor repeatedly until complete.");
+        if !json { println!("Enrolling a fingerprint — touch the sensor repeatedly until complete."); }
         s.enroll_fingerprint(&name, &pin, |remaining, status| {
             eprintln!("  sample captured (status {status}), {remaining} more needed");
         })?;
-        println!("Fingerprint enrolled{}.", if name.is_empty() { String::new() } else { format!(" as \"{name}\"") });
-        return Ok(());
+        let msg = format!("Fingerprint enrolled{}.", if name.is_empty() { String::new() } else { format!(" as \"{name}\"") });
+        return done(json, "fingerprint", &msg, serde_json::json!({"name": name}));
     }
 
     Err("no recognised command — run with -list, -info, -setPIN, -fingerprint, … (see -help on the website)".into())
+}
+
+/// Print a value as pretty JSON on stdout (used for -json/--json output).
+fn emit_json<T: serde::Serialize>(v: &T) {
+    match serde_json::to_string_pretty(v) {
+        Ok(s) => println!("{s}"),
+        Err(e) => eprintln!("Error: json serialize failed: {e}"),
+    }
+}
+
+/// Finish an action command: in JSON mode print {"ok":true,"action":...,<extra>};
+/// otherwise print the human-readable message.
+fn done(json: bool, action: &str, human: &str, extra: serde_json::Value) -> R<()> {
+    if json {
+        let mut obj = serde_json::json!({"ok": true, "action": action});
+        if let (Some(o), Some(e)) = (obj.as_object_mut(), extra.as_object()) {
+            for (k, v) in e { o.insert(k.clone(), v.clone()); }
+        }
+        emit_json(&obj);
+    } else {
+        println!("{human}");
+    }
+    Ok(())
 }
 
 fn print_info(product: &str, info: &fido::FidoInfo) {

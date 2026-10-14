@@ -1,0 +1,306 @@
+diff --git a/tools/extern.h b/tools/extern.h
+index b806ddd..33eb06a 100644
+--- a/tools/extern.h
++++ b/tools/extern.h
+@@ -100,4 +100,9 @@ void usage(void);
+ void xxd(const void *, size_t);
+ int base10(const char *);
+ 
++/* Token2: JSON output helpers (see util.c) */
++extern int fido_json;
++void json_strip_argv(int *, char **);
++void json_string(const char *);
++
+ #endif /* _EXTERN_H_ */
+diff --git a/tools/fido2-token.c b/tools/fido2-token.c
+index 412c2f9..af00920 100644
+--- a/tools/fido2-token.c
++++ b/tools/fido2-token.c
+@@ -51,6 +51,8 @@ main(int argc, char **argv)
+ 	int flags = 0;
+ 	char *device;
+ 
++	json_strip_argv(&argc, argv);	/* Token2: handle -json/--json before getopt */
++
+ 	while ((ch = getopt(argc, argv, TOKEN_OPT)) != -1) {
+ 		switch (ch) {
+ 		case 'a':
+diff --git a/tools/token.c b/tools/token.c
+index 12fcb2d..a463e30 100644
+--- a/tools/token.c
++++ b/tools/token.c
+@@ -302,6 +302,133 @@ print_byte_array(const char *label, const uint8_t *ba, size_t len)
+ 	printf("\n");
+ }
+ 
++/* Token2: emit the same device/authenticator attributes as the plain -I output
++ * but as a single JSON object. ci is NULL for non-FIDO2 (U2F) devices. */
++static void
++token_info_json(fido_dev_t *dev, const fido_cbor_info_t *ci)
++{
++	int first = 1;
++	int ival;
++	size_t i, n;
++
++#define J_SEP() do { if (!first) putchar(','); first = 0; } while (0)
++
++	putchar('{');
++
++	J_SEP(); printf("\"proto\":%d", fido_dev_protocol(dev));
++	J_SEP(); printf("\"major\":%d", fido_dev_major(dev));
++	J_SEP(); printf("\"minor\":%d", fido_dev_minor(dev));
++	J_SEP(); printf("\"build\":%d", fido_dev_build(dev));
++	J_SEP(); printf("\"caps\":%d", fido_dev_flags(dev));
++	J_SEP(); printf("\"fido2\":%s", ci != NULL ? "true" : "false");
++
++	if (ci != NULL) {
++		char * const *sa;
++		const bool *bv;
++		const uint64_t *cv;
++		const uint8_t *by;
++
++		J_SEP(); printf("\"versions\":[");
++		sa = fido_cbor_info_versions_ptr(ci);
++		n = fido_cbor_info_versions_len(ci);
++		for (i = 0; i < n; i++) { if (i) putchar(','); json_string(sa[i]); }
++		putchar(']');
++
++		J_SEP(); printf("\"extensions\":[");
++		sa = fido_cbor_info_extensions_ptr(ci);
++		n = fido_cbor_info_extensions_len(ci);
++		for (i = 0; i < n; i++) { if (i) putchar(','); json_string(sa[i]); }
++		putchar(']');
++
++		J_SEP(); printf("\"transports\":[");
++		sa = fido_cbor_info_transports_ptr(ci);
++		n = fido_cbor_info_transports_len(ci);
++		for (i = 0; i < n; i++) { if (i) putchar(','); json_string(sa[i]); }
++		putchar(']');
++
++		J_SEP(); printf("\"algorithms\":[");
++		n = fido_cbor_info_algorithm_count(ci);
++		for (i = 0; i < n; i++) {
++			const char *cose = "unknown";
++			switch (fido_cbor_info_algorithm_cose(ci, i)) {
++			case COSE_ES256: cose = "es256"; break;
++			case COSE_ES384: cose = "es384"; break;
++			case COSE_RS256: cose = "rs256"; break;
++			case COSE_EDDSA: cose = "eddsa"; break;
++			}
++			if (i) putchar(',');
++			printf("{\"cose\":"); json_string(cose);
++			printf(",\"type\":"); json_string(fido_cbor_info_algorithm_type(ci, i));
++			putchar('}');
++		}
++		putchar(']');
++
++		J_SEP(); printf("\"aaguid\":\"");
++		by = fido_cbor_info_aaguid_ptr(ci);
++		n = fido_cbor_info_aaguid_len(ci);
++		for (i = 0; i < n; i++) printf("%02x", by[i]);
++		putchar('"');
++
++		J_SEP(); printf("\"options\":{");
++		sa = fido_cbor_info_options_name_ptr(ci);
++		bv = fido_cbor_info_options_value_ptr(ci);
++		n = fido_cbor_info_options_len(ci);
++		for (i = 0; i < n; i++) {
++			if (i) putchar(',');
++			json_string(sa[i]);
++			printf(":%s", bv[i] ? "true" : "false");
++		}
++		putchar('}');
++
++		J_SEP(); printf("\"certifications\":{");
++		sa = fido_cbor_info_certs_name_ptr(ci);
++		cv = fido_cbor_info_certs_value_ptr(ci);
++		n = fido_cbor_info_certs_len(ci);
++		for (i = 0; i < n; i++) {
++			if (i) putchar(',');
++			json_string(sa[i]);
++			printf(":%llu", (unsigned long long)cv[i]);
++		}
++		putchar('}');
++
++		J_SEP(); printf("\"fwversion\":%llu", (unsigned long long)fido_cbor_info_fwversion(ci));
++		J_SEP(); printf("\"maxmsgsiz\":%llu", (unsigned long long)fido_cbor_info_maxmsgsiz(ci));
++		J_SEP(); printf("\"maxcredcntlst\":%llu", (unsigned long long)fido_cbor_info_maxcredcntlst(ci));
++		J_SEP(); printf("\"maxcredidlen\":%llu", (unsigned long long)fido_cbor_info_maxcredidlen(ci));
++		J_SEP(); printf("\"maxcredbloblen\":%llu", (unsigned long long)fido_cbor_info_maxcredbloblen(ci));
++		J_SEP(); printf("\"maxlargeblob\":%llu", (unsigned long long)fido_cbor_info_maxlargeblob(ci));
++		J_SEP(); printf("\"maxrpid_minpinlen\":%llu", (unsigned long long)fido_cbor_info_maxrpid_minpinlen(ci));
++		J_SEP(); printf("\"rk_remaining\":%lld", (long long)fido_cbor_info_rk_remaining(ci));
++		J_SEP(); printf("\"minpinlen\":%llu", (unsigned long long)fido_cbor_info_minpinlen(ci));
++
++		J_SEP(); printf("\"pin_protocols\":[");
++		by = fido_cbor_info_protocols_ptr(ci);
++		n = fido_cbor_info_protocols_len(ci);
++		for (i = 0; i < n; i++) { if (i) putchar(','); printf("%u", (unsigned)by[i]); }
++		putchar(']');
++
++		J_SEP(); printf("\"new_pin_required\":%s", fido_cbor_info_new_pin_required(ci) ? "true" : "false");
++		J_SEP(); printf("\"uv_attempts\":%llu", (unsigned long long)fido_cbor_info_uv_attempts(ci));
++		J_SEP(); printf("\"uv_modality\":%llu", (unsigned long long)fido_cbor_info_uv_modality(ci));
++	}
++
++	J_SEP();
++	if (fido_dev_get_retry_count(dev, &ival) == FIDO_OK)
++		printf("\"pin_retries\":%d", ival);
++	else
++		printf("\"pin_retries\":null");
++
++	J_SEP();
++	if (fido_dev_get_uv_retry_count(dev, &ival) == FIDO_OK)
++		printf("\"uv_retries\":%d", ival);
++	else
++		printf("\"uv_retries\":null");
++
++	printf("}\n");
++
++#undef J_SEP
++}
++
+ int
+ token_info(int argc, char **argv, char *path)
+ {
+@@ -344,6 +471,19 @@ token_info(int argc, char **argv, char *path)
+ 	if (cred_id || rp_id)
+ 		usage();
+ 
++	if (fido_json) {
++		if (fido_dev_is_fido2(dev)) {
++			if ((ci = fido_cbor_info_new()) == NULL)
++				errx(1, "fido_cbor_info_new");
++			if ((r = fido_dev_get_cbor_info(dev, ci)) != FIDO_OK)
++				errx(1, "fido_dev_get_cbor_info: %s (0x%x)",
++				    fido_strerr(r), r);
++		}
++		token_info_json(dev, ci);
++		fido_cbor_info_free(&ci);
++		goto end;
++	}
++
+ 	print_attr(dev);
+ 
+ 	if (fido_dev_is_fido2(dev) == false)
+@@ -664,14 +804,32 @@ token_list(int argc, char **argv, char *path)
+ 	if ((r = fido_dev_info_manifest(devlist, 64, &ndevs)) != FIDO_OK)
+ 		errx(1, "fido_dev_info_manifest: %s (0x%x)", fido_strerr(r), r);
+ 
+-	for (size_t i = 0; i < ndevs; i++) {
+-		const fido_dev_info_t *di = fido_dev_info_ptr(devlist, i);
+-		printf("%s: vendor=0x%04x, product=0x%04x (%s %s)\n",
+-		    fido_dev_info_path(di),
+-		    (uint16_t)fido_dev_info_vendor(di),
+-		    (uint16_t)fido_dev_info_product(di),
+-		    fido_dev_info_manufacturer_string(di),
+-		    fido_dev_info_product_string(di));
++	if (fido_json) {
++		putchar('[');
++		for (size_t i = 0; i < ndevs; i++) {
++			const fido_dev_info_t *di = fido_dev_info_ptr(devlist, i);
++			if (i) putchar(',');
++			printf("{\"path\":");
++			json_string(fido_dev_info_path(di));
++			printf(",\"vendor\":%u,\"product\":%u,\"manufacturer\":",
++			    (unsigned)(uint16_t)fido_dev_info_vendor(di),
++			    (unsigned)(uint16_t)fido_dev_info_product(di));
++			json_string(fido_dev_info_manufacturer_string(di));
++			printf(",\"product_string\":");
++			json_string(fido_dev_info_product_string(di));
++			putchar('}');
++		}
++		printf("]\n");
++	} else {
++		for (size_t i = 0; i < ndevs; i++) {
++			const fido_dev_info_t *di = fido_dev_info_ptr(devlist, i);
++			printf("%s: vendor=0x%04x, product=0x%04x (%s %s)\n",
++			    fido_dev_info_path(di),
++			    (uint16_t)fido_dev_info_vendor(di),
++			    (uint16_t)fido_dev_info_product(di),
++			    fido_dev_info_manufacturer_string(di),
++			    fido_dev_info_product_string(di));
++		}
+ 	}
+ 
+ 	fido_dev_info_free(&devlist, ndevs);
+diff --git a/tools/util.c b/tools/util.c
+index 0e518bb..3c40ca3 100644
+--- a/tools/util.c
++++ b/tools/util.c
+@@ -641,3 +641,75 @@ should_retry_with_pin(const fido_dev_t *dev, int r)
+ 
+ 	return 0;
+ }
++
++/*
++ * Token2: minimal JSON output support for the command-line tools.
++ *
++ * getopt(3) cannot parse "-json"/"--json" (they are not single-character
++ * options), so json_strip_argv() is called from each tool's main() BEFORE
++ * getopt: it removes those tokens from argv, shrinks argc, and raises the
++ * global fido_json flag. The output code then branches on fido_json.
++ */
++int fido_json = 0;
++
++void
++json_strip_argv(int *argc, char **argv)
++{
++	int w = 1;
++
++	for (int i = 1; i < *argc; i++) {
++		if (strcmp(argv[i], "-json") == 0 ||
++		    strcmp(argv[i], "--json") == 0) {
++			fido_json = 1;
++			continue;
++		}
++		argv[w++] = argv[i];
++	}
++	argv[w] = NULL;
++	*argc = w;
++}
++
++/* Print s as a quoted, escaped JSON string (prints "null" for NULL). */
++void
++json_string(const char *s)
++{
++	const unsigned char *p;
++
++	if (s == NULL) {
++		fputs("null", stdout);
++		return;
++	}
++	putchar('"');
++	for (p = (const unsigned char *)s; *p != '\0'; p++) {
++		switch (*p) {
++		case '"':
++			fputs("\\\"", stdout);
++			break;
++		case '\\':
++			fputs("\\\\", stdout);
++			break;
++		case '\b':
++			fputs("\\b", stdout);
++			break;
++		case '\f':
++			fputs("\\f", stdout);
++			break;
++		case '\n':
++			fputs("\\n", stdout);
++			break;
++		case '\r':
++			fputs("\\r", stdout);
++			break;
++		case '\t':
++			fputs("\\t", stdout);
++			break;
++		default:
++			if (*p < 0x20)
++				printf("\\u%04x", (unsigned)*p);
++			else
++				putchar(*p);
++			break;
++		}
++	}
++	putchar('"');
++}
