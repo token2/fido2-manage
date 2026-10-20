@@ -26,13 +26,21 @@ jobs:
       - name: Build libt2piv + GUI
         run: |
           set -e
-          export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
-          cmake -S token2-piv-tool -B /tmp/t2build -DCMAKE_BUILD_TYPE=Release -DGENERATE_MAN_PAGES=OFF -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
+          # Pin OpenSSL 3: the macOS runner now defaults to openssl@4 (4.x), which
+          # removed EVP_MD_meth_dup/_free that libfido2 1.15.0 uses. Force the exact
+          # openssl@3 paths so CMake's FindOpenSSL can't auto-pick openssl@4.
+          brew install openssl@3 || true
+          OSSL="$(brew --prefix openssl@3)"
+          [ -n "$OSSL" ] && [ -d "$OSSL/include/openssl" ] || { echo "ERROR: openssl@3 not found"; exit 1; }
+          export OPENSSL_ROOT_DIR="$OSSL"
+          export PKG_CONFIG_PATH="$OSSL/lib/pkgconfig:$PKG_CONFIG_PATH"
+          OSSL_FLAGS="-DOPENSSL_ROOT_DIR=$OSSL -DOPENSSL_INCLUDE_DIR=$OSSL/include -DOPENSSL_CRYPTO_LIBRARY=$OSSL/lib/libcrypto.dylib -DOPENSSL_SSL_LIBRARY=$OSSL/lib/libssl.dylib"
+          cmake -S token2-piv-tool -B /tmp/t2build -DCMAKE_BUILD_TYPE=Release -DGENERATE_MAN_PAGES=OFF $OSSL_FLAGS
           cmake --build /tmp/t2build --target t2piv_shared -j"$(sysctl -n hw.ncpu)"
           cmake --build /tmp/t2build -j"$(sysctl -n hw.ncpu)" || true   # CLI tools too
           git clone --depth 1 --branch 1.15.0 https://github.com/Yubico/libfido2 /tmp/libfido2
           ( cd /tmp/libfido2 && git apply --ignore-whitespace "$GITHUB_WORKSPACE/libfido2-token2.patch" )
-          cmake -S /tmp/libfido2 -B /tmp/libfido2/build -DBUILD_TOOLS=OFF -DBUILD_EXAMPLES=OFF -DUSE_PCSC=ON -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
+          cmake -S /tmp/libfido2 -B /tmp/libfido2/build -DBUILD_TOOLS=OFF -DBUILD_EXAMPLES=OFF -DUSE_PCSC=ON $OSSL_FLAGS
           cmake --build /tmp/libfido2/build --target fido2_shared -j"$(sysctl -n hw.ncpu)"
           export T2PIV_LIB_DIR=/tmp/t2build/lib FIDO2_LIB_DIR=/tmp/libfido2/build/src
           cd token2-piv-gui/src-tauri
