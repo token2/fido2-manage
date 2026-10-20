@@ -520,8 +520,9 @@ $$("dialog form[data-cmd]").forEach((form) => {
             if (!cur.hex) return toast(cur.warn || "Invalid current Admin PIN", true);
             if (!nk.hex) return toast(nk.warn || "Invalid new Admin PIN", true);
             if (nk.warn) toast(nk.warn);
-            await invoke("authenticate", { mgmKey: cur.hex });
-            await invoke("set_mgm_key", { newKey: nk.hex, algorithm: f.algorithm, touch: !!f.touch });
+            // authenticate the current key and write the new one in ONE backend call
+            // (a re-select between separate calls would drop the authentication)
+            await invoke("set_mgm_key", { currentKey: cur.hex, newKey: nk.hex, algorithm: f.algorithm, touch: false });
             toast("Admin PIN set"); break;
           }
           case "set_retries": {

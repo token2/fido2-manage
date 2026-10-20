@@ -195,14 +195,35 @@ fn parse_hex_key(hex_key: &str) -> R<Vec<u8>> {
 pub fn authenticate(state: State<AppState>, mgm_key: String) -> R<()> {
     let k = parse_hex_key(&mgm_key)?;
     let mut s = state.0.lock().map_err(|_| "state lock poisoned")?;
+    let reader = s.reader.clone();
     let piv = s.piv.as_ref().ok_or("No key connected")?;
-    piv.authenticate(&k).map_err(|e| format!("Admin PIN not accepted: {e}"))?;
+    // Re-select the PIV applet first. On a single-interface CCID key the shared
+    // card may have been left on the OTP/FIDO applet by the background poll; without
+    // this, GENERAL AUTHENTICATE lands on the wrong applet and the card returns a
+    // non-PIV status word that surfaces as the useless "Something went wrong (-7)".
+    if !reader.is_empty() {
+        let _ = piv.connect(&reader);
+    }
+    piv.authenticate(&k).map_err(|e| {
+        format!(
+            "Current Admin PIN not accepted. Check it is this key's current Admin PIN \
+             (Token2 factory default is 865362 repeated to 48 hex digits). If the key's \
+             Admin PIN is PIN-protected, it is managed by the user PIN and cannot be set \
+             separately. [{e}]"
+        )
+    })?;
     s.admin_key = Some(k);
     Ok(())
 }
 
 #[tauri::command]
-pub fn set_mgm_key(state: State<AppState>, new_key: String, algorithm: String, touch: bool) -> R<()> {
+pub fn set_mgm_key(
+    state: State<AppState>,
+    new_key: String,
+    algorithm: String,
+    touch: bool,
+    current_key: Option<String>,
+) -> R<()> {
     let k = parse_hex_key(&new_key)?;
     let algo = match algorithm.as_str() {
         "3DES" => ALGO_3DES,
@@ -211,10 +232,33 @@ pub fn set_mgm_key(state: State<AppState>, new_key: String, algorithm: String, t
         "AES256" => ALGO_AES256,
         _ => return Err("unknown Admin PIN algorithm".into()),
     };
-    with_piv(&state, |p| p.set_mgm_key(&k, algo, touch))?;
-    if let Ok(mut s) = state.0.lock() {
-        s.admin_key = Some(k);
+    // Changing the Admin PIN must authenticate the CURRENT management key and write
+    // the new one in ONE session: a PIV SELECT resets the security state, so doing
+    // authenticate and set as separate commands (each re-selecting the applet) drops
+    // the authentication in between and the write fails. Re-select once here, then
+    // authenticate + set without re-selecting.
+    let mut s = state.0.lock().map_err(|_| "state lock poisoned")?;
+    let reader = s.reader.clone();
+    {
+        let piv = s.piv.as_ref().ok_or("No key connected")?;
+        if !reader.is_empty() {
+            let _ = piv.connect(&reader);
+        }
+        if let Some(cur) = &current_key {
+            let ck = parse_hex_key(cur)?;
+            piv.authenticate(&ck).map_err(|e| {
+                format!(
+                    "Current Admin PIN not accepted. Check it is this key's current Admin PIN \
+                     (Token2 factory default is 865362 repeated to 48 hex digits). If the key's \
+                     Admin PIN is PIN-protected, it is managed by the user PIN and cannot be set \
+                     separately. [{e}]"
+                )
+            })?;
+        }
+        piv.set_mgm_key(&k, algo, touch)
+            .map_err(|e| format!("could not set the new Admin PIN [{e}]"))?;
     }
+    s.admin_key = Some(k);
     Ok(())
 }
 

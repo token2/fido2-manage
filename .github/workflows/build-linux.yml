@@ -182,7 +182,7 @@ jobs:
       - name: Build .deb
         run: |
           set -e
-          VER=0.1.0
+          VER=0.2.0
           PKG="$RUNNER_TEMP/deb/token2-key-manager"
           rm -rf "$PKG"; mkdir -p "$PKG/DEBIAN" "$PKG/opt/token2-key-manager" "$PKG/usr/bin" \
             "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/256x256/apps"
@@ -286,6 +286,51 @@ jobs:
           gzip -9n "$DOCDIR/changelog.Debian"
           chmod 0644 "$DOCDIR/copyright" "$DOCDIR/changelog.Debian.gz"
           dpkg-deb --build --root-owner-group "$PKG" "$RUNNER_TEMP/artifacts/token2-key-manager_${VER}_amd64.deb"
+          ls -la "$RUNNER_TEMP/artifacts/" || true
+
+      - name: Build .rpm
+        run: |
+          set -e
+          VER=0.2.0
+          # Reuse the .deb staging tree (opt/ + usr/) — it persists on disk between
+          # steps. fpm packages the same payload as an RPM for Fedora/RHEL/openSUSE.
+          PKG="$RUNNER_TEMP/deb/token2-key-manager"
+          sudo apt-get install -y rpm ruby ruby-dev build-essential
+          sudo gem install --no-document fpm
+          # post-install: enable pcscd (FIDO2/PIV need it), refresh desktop/icon caches
+          cat > "$RUNNER_TEMP/rpm-after-install.sh" <<'EOF'
+          #!/bin/sh
+          if command -v systemctl >/dev/null 2>&1; then
+            systemctl enable --now pcscd.socket 2>/dev/null || true
+            systemctl enable pcscd.service 2>/dev/null || true
+            systemctl restart pcscd 2>/dev/null || systemctl start pcscd 2>/dev/null || true
+          fi
+          command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q 2>/dev/null || true
+          command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+          exit 0
+          EOF
+          # Explicit RPM deps only (fpm does not auto-scan the bundled /opt libs).
+          # Dependency names are Fedora's; adjust for RHEL/openSUSE if needed. The
+          # webkit rich-dep covers both the 4.1 and legacy package names.
+          fpm -s dir -t rpm \
+            --name token2-key-manager \
+            --version "$VER" --iteration 1 \
+            --architecture x86_64 \
+            --license BSD-2-Clause \
+            --vendor "Token2 Sarl" \
+            --maintainer "Token2 Sarl <info@token2.com>" \
+            --url "https://www.token2.com" \
+            --category "Applications/System" \
+            --rpm-summary "Token2 Key Manager - fido2-manage GUI with PIV and OTP" \
+            --description "A graphical front-end for fido2-manage: manage FIDO2 security keys (passkeys, PIN, fingerprints) with PIV certificate and OATH-TOTP/HOTP management for Token2 PIN+ / FIDO2 keys. Also installs the fido2-manage and token2-piv-tool CLIs. FIDO2 and PIV access require the PC/SC daemon (pcscd)." \
+            --depends pcsc-lite \
+            --depends pcsc-lite-ccid \
+            --depends gtk3 \
+            --depends "(webkit2gtk4.1 or webkit2gtk3)" \
+            --after-install "$RUNNER_TEMP/rpm-after-install.sh" \
+            -C "$PKG" \
+            -p "$RUNNER_TEMP/artifacts/token2-key-manager-${VER}-1.x86_64.rpm" \
+            opt usr
           ls -la "$RUNNER_TEMP/artifacts/" || true
 
       - uses: actions/upload-artifact@v4
