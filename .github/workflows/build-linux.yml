@@ -44,6 +44,7 @@ jobs:
           cmake -S /tmp/libcbor -B /tmp/libcbor/build \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_INSTALL_PREFIX=/tmp/cborprefix
           cmake --build /tmp/libcbor/build --target install -j"$(nproc)"
           rm -rf /tmp/libfido2
