@@ -1312,17 +1312,25 @@ pub fn key_capabilities(busy_reader: Option<String>, busy_has_piv: Option<bool>,
             break;
         }
     }
-    // elevated: raw HID FIDO devices (e.g. YubiKey over USB) count too. Do this
-    // AFTER the PC/SC applet probe so the manifest's OTP-applet SELECT can't
-    // corrupt it.
+    // Any FIDO authenticator libfido2 can enumerate counts as present — whether it
+    // speaks raw HID (YubiKey, Nitrokey, pico-fido, …) or exposes a FIDO applet over
+    // CCID (a third-party key added to the PC/SC Info.plist, NFC, etc.). The PC/SC
+    // applet probe above only recognises Token2 keys, so a third-party key must still
+    // show as detected even when its standard-FIDO-applet SELECT fails over a flaky
+    // CCID path (the FIDO_ERR_TX some keys return) — libfido2 still lists it, exactly
+    // as the fido2-manage CLI sees it. libfido2's manifest only returns FIDO-capable
+    // devices, so a plain PIV/OATH card is never counted here. Done AFTER the applet
+    // probe so the manifest's OTP-applet SELECT can't corrupt it.
+    //
+    // On Windows raw HID needs an elevated process, so gate on elevation there;
+    // on Linux/macOS is_elevated() is always true and udev/uaccess governs access.
     if is_elevated() {
         if let Ok(devs) = fido_list_devices() {
-            let hid: Vec<_> = devs.into_iter().filter(|d| d.transport == "hid").collect();
-            if !hid.is_empty() { caps.fido = true; }
-            // read the serial from a HID key  
-            // via the vendor APDU over CTAPHID, if we don't already have one.
+            if !devs.is_empty() { caps.fido = true; }
+            // read the serial from a HID key via the vendor APDU over CTAPHID,
+            // if we don't already have one.
             if caps.serial.is_empty() {
-                for d in &hid {
+                for d in devs.iter().filter(|d| d.transport == "hid") {
                     let sn = hid_serial(&d.path);
                     if !sn.is_empty() { caps.serial = sn; break; }
                 }

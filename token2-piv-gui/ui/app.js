@@ -410,14 +410,18 @@ const DEFAULTS = {
 // chars (24 bytes). If the user types hex (exactly 48 hex digits), use it as-is.
 // Otherwise treat the input as ASCII, hex-encode it, and zero-pad to 24 bytes.
 // Returns { hex, warn } where warn is set when the ASCII was shorter than 24.
-function toMgmHex(input) {
+// key byte-length per management-key algorithm (3DES & AES-192 are both 24 bytes)
+const MGM_BYTES = { "3DES": 24, "AES128": 16, "AES192": 24, "AES256": 32 };
+function mgmBytesFor(algo) { return MGM_BYTES[(algo || "").replace("-", "")] || 24; }
+function toMgmHex(input, bytes = 24) {
+  const need = bytes * 2; // hex digits for the selected algorithm
   const v = (input || "").trim();
   if (!/^[0-9a-fA-F]*$/.test(v)) return { hex: "", warn: "Admin PIN may only contain hex digits 0-9 and a-f." };
   if (v.length % 2) return { hex: "", warn: "Admin PIN must have an even number of hex digits." };
-  if (v.length > 48) return { hex: "", warn: "Admin PIN is too long (max 48 hex digits / 24 bytes)." };
+  if (v.length > need) return { hex: "", warn: `Admin PIN is too long (max ${need} hex digits / ${bytes} bytes for this algorithm).` };
   let warn = "";
-  if (v.length && v.length < 48) warn = `Admin PIN is ${v.length} digits; padded with zeros to 48.`;
-  return { hex: (v + "0".repeat(48 - v.length)).toLowerCase(), warn };
+  if (v.length && v.length < need) warn = `Admin PIN is ${v.length} digits; padded with zeros to ${need}.`;
+  return { hex: (v + "0".repeat(need - v.length)).toLowerCase(), warn };
 }
 const FIELD_KIND = { current: null, pin: "pin", pin_verify: "pin", new_pin: null, puk: "puk", mgm_key: "mgm", password: null };
 function addDefaultButtons(form) {
@@ -469,6 +473,17 @@ function openDialog(id, ctx = {}) {
   form.reset();
   $$(".err", form).forEach((x) => x.remove());
   $$("[data-slot-label]", dlg).forEach((x) => (x.textContent = ctx.label || ""));
+  // Admin PIN dialog: default the Algorithm selector to the key's CURRENT algorithm
+  // so a plain value change keeps the cipher (changing it to a non-matching one is
+  // what the applet rejects on e.g. the Dual Ace).
+  if (id === "dlg-mgm") {
+    const sel = $("select[name=algorithm]", dlg);
+    if (sel && info && info.mgm_algo) {
+      const want = info.mgm_algo.replace("-", ""); // "AES-192" -> "AES192"
+      const opt = [...sel.options].find((o) => o.value === want || o.text === want);
+      if (opt) sel.value = opt.value;
+    }
+  }
   dlg.showModal();
 }
 $$("[data-dialog]").forEach((b) => b.addEventListener("click", () => openDialog(b.dataset.dialog)));
@@ -516,13 +531,18 @@ $$("dialog form[data-cmd]").forEach((form) => {
             toast("PIN unblocked"); break;
           }
           case "set_mgm_key": {
-            const cur = toMgmHex(f.mgm_key), nk = toMgmHex(f.new_key);
+            // current key is sized to the key's CURRENT algorithm; the new key to the
+            // SELECTED algorithm (3DES/AES-192 = 24 B, AES-128 = 16 B, AES-256 = 32 B)
+            const curAlgo = (info && info.mgm_algo) || "3DES";
+            const newAlgo = f.algorithm || curAlgo;
+            const cur = toMgmHex(f.mgm_key, mgmBytesFor(curAlgo));
+            const nk = toMgmHex(f.new_key, mgmBytesFor(newAlgo));
             if (!cur.hex) return toast(cur.warn || "Invalid current Admin PIN", true);
             if (!nk.hex) return toast(nk.warn || "Invalid new Admin PIN", true);
             if (nk.warn) toast(nk.warn);
             // authenticate the current key and write the new one in ONE backend call
             // (a re-select between separate calls would drop the authentication)
-            await invoke("set_mgm_key", { currentKey: cur.hex, newKey: nk.hex, algorithm: f.algorithm, touch: false });
+            await invoke("set_mgm_key", { currentKey: cur.hex, newKey: nk.hex, algorithm: newAlgo });
             toast("Admin PIN set"); break;
           }
           case "set_retries": {

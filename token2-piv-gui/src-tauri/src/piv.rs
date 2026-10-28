@@ -378,8 +378,8 @@ impl Piv {
         rc_to_result(unsafe { t2piv_authenticate2(self.state, key.as_ptr(), key.len()) })
     }
 
-    pub fn set_mgm_key(&self, key: &[u8], algorithm: u8, touch: bool) -> Result<()> {
-        rc_to_result(unsafe { t2piv_set_mgmkey3(self.state, key.as_ptr(), key.len(), algorithm, touch as u8) })
+    pub fn set_mgm_key(&self, key: &[u8], algorithm: u8, touch: u8) -> Result<()> {
+        rc_to_result(unsafe { t2piv_set_mgmkey3(self.state, key.as_ptr(), key.len(), algorithm, touch) })
     }
 
     pub fn slot_metadata(&self, slot: u8) -> Result<SlotMeta> {

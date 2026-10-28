@@ -182,7 +182,7 @@ jobs:
       - name: Build .deb
         run: |
           set -e
-          VER=0.2.0
+          VER=0.2.1
           PKG="$RUNNER_TEMP/deb/token2-key-manager"
           rm -rf "$PKG"; mkdir -p "$PKG/DEBIAN" "$PKG/opt/token2-key-manager" "$PKG/usr/bin" \
             "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/256x256/apps"
@@ -193,6 +193,13 @@ jobs:
           cat > "$PKG/usr/bin/token2-key-manager" <<'EOF'
           #!/bin/sh
           export LD_LIBRARY_PATH="/opt/token2-key-manager:$LD_LIBRARY_PATH"
+          # On NVIDIA + Wayland, WebKitGTK's DMABUF renderer hits an explicit-sync
+          # protocol error that crashes the app at launch (GitHub issue #56). Disable
+          # that renderer only when an NVIDIA GPU is present, so AMD/Intel keep full
+          # acceleration.
+          if [ -e /proc/driver/nvidia ] || { command -v lspci >/dev/null 2>&1 && lspci 2>/dev/null | grep -qi nvidia; }; then
+            export WEBKIT_DISABLE_DMABUF_RENDERER=1
+          fi
           exec "/opt/token2-key-manager/token2-key-manager" "$@"
           EOF
           cat > "$PKG/usr/bin/fido2-manage" <<'EOF'
@@ -291,7 +298,7 @@ jobs:
       - name: Build .rpm
         run: |
           set -e
-          VER=0.2.0
+          VER=0.2.1
           # Reuse the .deb staging tree (opt/ + usr/) — it persists on disk between
           # steps. fpm packages the same payload as an RPM for Fedora/RHEL/openSUSE.
           PKG="$RUNNER_TEMP/deb/token2-key-manager"

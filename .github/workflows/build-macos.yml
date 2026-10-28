@@ -157,8 +157,8 @@ jobs:
             <key>CFBundleName</key><string>Token2 Key Manager</string>
             <key>CFBundleDisplayName</key><string>Token2 Key Manager</string>
             <key>CFBundleIdentifier</key><string>com.token2.keymanager</string>
-            <key>CFBundleVersion</key><string>0.1.0</string>
-            <key>CFBundleShortVersionString</key><string>0.1.0</string>
+            <key>CFBundleVersion</key><string>0.2.1</string>
+            <key>CFBundleShortVersionString</key><string>0.2.1</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleExecutable</key><string>token2-key-manager</string>
             <key>CFBundleIconFile</key><string>AppIcon</string>
