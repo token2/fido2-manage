@@ -53,6 +53,7 @@ pub const ALGO_ECCP256: u8 = 0x11;
 pub const ALGO_ECCP384: u8 = 0x14;
 pub const ALGO_ED25519: u8 = 0xE0;
 pub const ALGO_X25519: u8 = 0xE1;
+pub const ALGO_AUTO: u8 = 0xff; // let the lib keep the current key's algorithm
 
 // slots
 pub const SLOT_AUTH: u8 = 0x9a;
@@ -70,6 +71,7 @@ pub const TOUCHPOLICY_DEFAULT: u8 = 0;
 pub const TOUCHPOLICY_NEVER: u8 = 1;
 pub const TOUCHPOLICY_ALWAYS: u8 = 2;
 pub const TOUCHPOLICY_CACHED: u8 = 3;
+pub const TOUCHPOLICY_AUTO: u8 = 255; // keep the current key's touch policy
 
 pub const ORIGIN_GENERATED: u8 = 1;
 pub const ORIGIN_IMPORTED: u8 = 2;

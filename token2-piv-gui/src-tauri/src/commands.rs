@@ -221,7 +221,6 @@ pub fn set_mgm_key(
     state: State<AppState>,
     new_key: String,
     algorithm: String,
-    touch: bool,
     current_key: Option<String>,
 ) -> R<()> {
     let k = parse_hex_key(&new_key)?;
@@ -232,6 +231,11 @@ pub fn set_mgm_key(
         "AES256" => ALGO_AES256,
         _ => return Err("unknown Admin PIN algorithm".into()),
     };
+    // The UI defaults the algorithm to the key's CURRENT one, so a plain value change
+    // keeps the cipher — the Token2 applet rejects a management key whose algorithm (or
+    // key length) does not match what it expects (seen as -14 argument error / -16 not
+    // supported on e.g. the Dual Ace, whose key is AES, not the old 3DES default). The
+    // touch policy is preserved (TOUCHPOLICY_AUTO) since the dialog no longer sets it.
     // Changing the Admin PIN must authenticate the CURRENT management key and write
     // the new one in ONE session: a PIV SELECT resets the security state, so doing
     // authenticate and set as separate commands (each re-selecting the applet) drops
@@ -255,7 +259,7 @@ pub fn set_mgm_key(
                 )
             })?;
         }
-        piv.set_mgm_key(&k, algo, touch)
+        piv.set_mgm_key(&k, algo, TOUCHPOLICY_AUTO)
             .map_err(|e| format!("could not set the new Admin PIN [{e}]"))?;
     }
     s.admin_key = Some(k);

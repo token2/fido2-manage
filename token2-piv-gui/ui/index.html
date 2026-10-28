@@ -455,14 +455,11 @@
     <p class="hint">The Admin PIN (the PIV management key) is only needed to reset the user PIN and PUK. Enter up to 24 ASCII characters (padded with zeros), or 48 hex digits.</p>
     <label>Current Admin PIN <input name="mgm_key" class="mono" required></label>
     <label>New Admin PIN <input name="new_key" class="mono" required></label>
-    <div class="row">
-      <label>Algorithm
-        <select name="algorithm">
-          <option>3DES</option><option>AES128</option><option>AES192</option><option>AES256</option>
-        </select>
-      </label>
-      <label class="check"><input name="touch" type="checkbox"> Require touch</label>
-    </div>
+    <label>Algorithm
+      <select name="algorithm">
+        <option>3DES</option><option>AES128</option><option>AES192</option><option>AES256</option>
+      </select>
+    </label>
     <menu><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Set Admin PIN</button></menu>
   </form>
 </dialog>
