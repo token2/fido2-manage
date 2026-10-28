@@ -15,7 +15,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libpcsclite-dev pcscd libssl-dev pkg-config cmake build-essential libudev-dev \
-            libcbor-dev zlib1g-dev check \
+            zlib1g-dev check \
             libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
           # FUSE for appimagetool (package name differs across Ubuntu versions)
           sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64 || true
@@ -33,19 +33,44 @@ jobs:
           cmake --build /tmp/t2build --target t2piv_shared -j"$(nproc)"
           # build the PIV CLI tools as well (portable binaries)
           cmake --build /tmp/t2build -j"$(nproc)" || true
+          # Build libcbor ourselves as a STATIC lib and link it into libfido2.
+          # A dynamic libcbor causes a 0.10-vs-0.11 ABI mismatch: libfido2 compiled
+          # against one libcbor but loading another gets NULL from cbor_load(), so
+          # GETINFO fails to parse and FIDO2 keys are mis-detected as U2F (empty
+          # -info, "device does not support that command" on credential mgmt).
+          # Static = no runtime .so, nothing to mismatch (GitHub issue #57).
+          rm -rf /tmp/libcbor
+          git clone --depth 1 --branch v0.10.2 https://github.com/PJK/libcbor /tmp/libcbor
+          cmake -S /tmp/libcbor -B /tmp/libcbor/build \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_INSTALL_PREFIX=/tmp/cborprefix
+          cmake --build /tmp/libcbor/build --target install -j"$(nproc)"
           rm -rf /tmp/libfido2
           git clone --depth 1 --branch 1.15.0 https://github.com/Yubico/libfido2 /tmp/libfido2
           ( cd /tmp/libfido2 && git apply --ignore-whitespace "$GITHUB_WORKSPACE/libfido2-token2.patch" )
           # fail loudly if the patch did not land the function or the export
           grep -q fido_dev_token2_apdu /tmp/libfido2/src/dev.c || { echo "ERROR: token2_apdu not in dev.c"; exit 1; }
-          # STATIC build: no runtime .so, so a system libfido2 can never shadow it
-          cmake -S /tmp/libfido2 -B /tmp/libfido2/build -DBUILD_TOOLS=OFF -DBUILD_EXAMPLES=OFF -DUSE_PCSC=ON -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF 2>&1 | tee /tmp/fido_cmake.log; grep -i "zlib\|compress" /tmp/fido_cmake.log || true
+          # STATIC build (no runtime .so to shadow it), pointed at our static libcbor
+          # so the headers it compiles against match the archive the binary links.
+          cmake -S /tmp/libfido2 -B /tmp/libfido2/build \
+            -DBUILD_TOOLS=OFF -DBUILD_EXAMPLES=OFF -DUSE_PCSC=ON \
+            -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_PREFIX_PATH=/tmp/cborprefix \
+            -DCBOR_INCLUDE_DIRS=/tmp/cborprefix/include \
+            -DCBOR_LIBRARY_DIRS=/tmp/cborprefix/lib \
+            -DCBOR_LIBRARIES=cbor 2>&1 | tee /tmp/fido_cmake.log
+          grep -i "zlib\|compress" /tmp/fido_cmake.log || true
           cmake --build /tmp/libfido2/build --target fido2 -j"$(nproc)"
           nm /tmp/libfido2/build/src/libfido2.a | grep -q fido_dev_token2_apdu || { echo "ERROR: symbol not in static lib"; exit 1; }
           export T2PIV_LIB_DIR=/tmp/t2build/lib FIDO2_LIB_DIR=/tmp/libfido2/build/src FIDO2_LINK_STATIC=1 FIDO2_LIB_NAME=fido2
           cd token2-piv-gui/src-tauri
           mkdir -p libs && touch libs/.keep   # satisfy tauri.conf resources glob
-          RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN" cargo build --release --bin token2-key-manager --bin fido2-manage
+          # -L our static libcbor dir so build.rs's "-lcbor" resolves to libcbor.a
+          # (no libcbor.so exists anywhere), giving a self-consistent static cbor.
+          RUSTFLAGS="-L native=/tmp/cborprefix/lib -C link-arg=-Wl,-rpath,\$ORIGIN" cargo build --release --bin token2-key-manager --bin fido2-manage
+          # guard: the binary must NOT pull a dynamic libcbor anymore
+          ! ldd target/release/token2-key-manager | grep -qi cbor || { echo "ERROR: libcbor still dynamic"; ldd target/release/token2-key-manager | grep -i cbor; exit 1; }
 
       - name: Stage portable folder
         if: always()
