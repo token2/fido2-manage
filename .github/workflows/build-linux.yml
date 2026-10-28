@@ -46,7 +46,8 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_LIBDIR=lib \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_INSTALL_PREFIX=/tmp/cborprefix
-          cmake --build /tmp/libcbor/build --target install -j"$(nproc)"
+          cmake --build /tmp/libcbor/build -j"$(nproc)"
+          cmake --install /tmp/libcbor/build
           rm -rf /tmp/libfido2
           git clone --depth 1 --branch 1.15.0 https://github.com/Yubico/libfido2 /tmp/libfido2
           ( cd /tmp/libfido2 && git apply --ignore-whitespace "$GITHUB_WORKSPACE/libfido2-token2.patch" )
