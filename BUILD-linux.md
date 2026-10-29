@@ -64,15 +64,21 @@ The binaries land in `token2-piv-gui/src-tauri/target/release/`:
 
 ## 6. Run
 
-Keep `libt2piv.so` (from `/tmp/t2build/lib`) next to the binaries or on
-`LD_LIBRARY_PATH`:
+The binaries need `libt2piv.so.2` — this is the PIV library **you built in
+step 3** (it lives in `/tmp/t2build/lib`), not a system package. Copy it next
+to the binaries, then run with `LD_LIBRARY_PATH=.`:
 
 ```bash
 cd token2-piv-gui/src-tauri/target/release
-cp /tmp/t2build/lib/libt2piv.so* .
+cp -a /tmp/t2build/lib/libt2piv.so* .      # -a preserves the libt2piv.so.2 symlink
 LD_LIBRARY_PATH=. ./fido2-manage -info
 LD_LIBRARY_PATH=. ./token2-key-manager
 ```
+
+> If you get `error while loading shared libraries: libt2piv.so.2`, the library
+> just isn't on the loader path — the `cp -a` above fixes it. If `/tmp/t2build`
+> was cleaned up, find the file with `find / -name 'libt2piv.so*' 2>/dev/null`
+> and copy it from there.
 
 `./fido2-manage -info` on a plugged-in key should show the full FIDO2 details
 (firmware, versions, AAGUID, PIN state).
