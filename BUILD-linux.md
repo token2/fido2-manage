@@ -7,7 +7,7 @@ which avoids the cross-CPU codegen issue seen with the prebuilt binaries.
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake git pkg-config \
+sudo apt install -y build-essential cmake git pkg-config check \
   libssl-dev libpcsclite-dev pcscd libudev-dev zlib1g-dev libcbor-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 ```
