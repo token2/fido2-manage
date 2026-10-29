@@ -41,6 +41,15 @@ jobs:
           # Static = no runtime .so, nothing to mismatch (GitHub issue #57).
           rm -rf /tmp/libcbor
           git clone --depth 1 --branch v0.10.2 https://github.com/PJK/libcbor /tmp/libcbor
+          # Force LTO OFF. libcbor hard-enables INTERPROCEDURAL_OPTIMIZATION on the
+          # src directory whenever the compiler supports it (no cache flag overrides
+          # a directly-set directory property). Under GCC -O3 that LTO build
+          # miscompiles cbor_load() -> it returns NULL on a valid GETINFO reply and
+          # can emit an illegal instruction at runtime, so keys get mis-detected as
+          # U2F and the GUI crashes listing passkeys (GitHub issue #57). The distro
+          # (non-LTO) build is fine, so we just disable it here.
+          sed -i 's/check_ipo_supported(RESULT use_lto)/check_ipo_supported(RESULT use_lto)\n    set(use_lto FALSE)/' /tmp/libcbor/CMakeLists.txt
+          grep -n "set(use_lto FALSE)" /tmp/libcbor/CMakeLists.txt || { echo "ERROR: libcbor LTO-disable patch did not apply"; exit 1; }
           cmake -S /tmp/libcbor -B /tmp/libcbor/build \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_LIBDIR=lib \
