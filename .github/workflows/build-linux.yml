@@ -176,10 +176,18 @@ jobs:
           ( cd /tmp && ./appimagetool --appimage-extract >/dev/null 2>&1 ) || true
           TOOL="/tmp/squashfs-root/AppRun"
           [ -x "$TOOL" ] || TOOL="/tmp/appimagetool"
-          # build. ARCH is required; the output AppImage's own runtime still needs FUSE
-          # on the END USER's machine, which is normal for AppImages.
-          ARCH=x86_64 "$TOOL" "$APPDIR" "$RUNNER_TEMP/artifacts/Token2-Key-Manager-x86_64.AppImage" \
-            || ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run "$APPDIR" "$RUNNER_TEMP/artifacts/Token2-Key-Manager-x86_64.AppImage"
+          # Use the modern "type2-runtime" instead of the old AppImageKit runtime.
+          # The old runtime needs libfuse.so.2 on the END USER's machine, which
+          # Fedora and other recent distros no longer ship (only FUSE 3) — so the
+          # app failed with "AppImages require FUSE to run". type2-runtime statically
+          # links libfuse3 and auto-falls back to extract-and-run when FUSE is
+          # unavailable, so the AppImage runs without the user installing anything.
+          RUNTIME=/tmp/runtime-x86_64
+          wget -q https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 -O "$RUNTIME" && chmod +x "$RUNTIME" || RUNTIME=""
+          RTOPT=""; [ -n "$RUNTIME" ] && [ -s "$RUNTIME" ] && RTOPT="--runtime-file $RUNTIME"
+          # build. ARCH is required.
+          ARCH=x86_64 "$TOOL" $RTOPT "$APPDIR" "$RUNNER_TEMP/artifacts/Token2-Key-Manager-x86_64.AppImage" \
+            || ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run $RTOPT "$APPDIR" "$RUNNER_TEMP/artifacts/Token2-Key-Manager-x86_64.AppImage"
           ls -la "$RUNNER_TEMP/artifacts/" || true
 
       - name: Build .deb
