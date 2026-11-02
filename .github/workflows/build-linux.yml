@@ -5,7 +5,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest): the build host's glibc sets the MINIMUM glibc the
+    # binaries require. ubuntu-latest (26.04, glibc 2.43) produced binaries that
+    # failed on Debian 13 / Fedora with "GLIBC_2.43 not found". 24.04 (glibc 2.39)
+    # still ships webkit2gtk-4.1 but runs on older distros. Do NOT bump to a newer
+    # image without checking the oldest distro you want to support.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
