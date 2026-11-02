@@ -99,7 +99,7 @@ jobs:
           if [ -n "$WK_SO" ]; then
             WK_LIBDIR=$(dirname "$WK_SO")
             # libraries that MUST be resolved from the host (never bundle these)
-            EXCLUDE='^(ld-linux|ld-musl|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl|libgcc_s|libselinux|libcap|libGL|libGLX|libGLdispatch|libOpenGL|libEGL|libGLESv|libgbm|libdrm|libglapi|libxshmfence|libX11|libXext|libXau|libXdmcp|libxcb|libXrender|libXi|libXrandr|libXfixes|libXcursor|libXcomposite|libXdamage|libXinerama|libXtst|libXt|libSM|libICE|libXss|libxkbcommon|libwayland|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libgthread-2\.0|libgtk-3|libgdk-3|libgdk_pixbuf-2\.0|libpango|libpangocairo|libpangoft2|libcairo|libatk|libharfbuzz|libfontconfig|libfreetype|libasound|libpulse|libsystemd|libudev|libdbus-1|libstdc\+\+)\.'
+            EXCLUDE='^(ld-linux|ld-musl|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl|libgcc_s|libselinux|libcap|libGL|libGLX|libGLdispatch|libOpenGL|libEGL|libGLESv|libgbm|libdrm|libglapi|libxshmfence|libX11|libXext|libXau|libXdmcp|libxcb|libXrender|libXi|libXrandr|libXfixes|libXcursor|libXcomposite|libXdamage|libXinerama|libXtst|libXt|libSM|libICE|libXss|libxkbcommon|libwayland|libpcre2-8|libpcre|libffi|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libgthread-2\.0|libgtk-3|libgdk-3|libgdk_pixbuf-2\.0|libpango|libpangocairo|libpangoft2|libcairo|libatk|libharfbuzz|libfontconfig|libfreetype|libasound|libpulse|libsystemd|libudev|libdbus-1|libstdc\+\+)\.'
             # helper processes (WebKitNetworkProcess / WebKitWebProcess + injected bundle)
             if [ -d "$WK_LIBDIR/webkit2gtk-4.1" ]; then
               cp -r "$WK_LIBDIR/webkit2gtk-4.1" "$APPDIR/usr/lib/webkit2gtk-4.1"
@@ -121,6 +121,16 @@ jobs:
               cp -Ln "$lib" "$APPDIR/usr/lib/" 2>/dev/null || true
             done
             echo "WebKit bundled from $WK_LIBDIR:"; ls "$APPDIR/usr/lib" | grep -Ei "webkit|javascriptcore|soup|gst" || true
+            # WebKitGTK 4.1 ignores WEBKIT_EXEC_PATH (honored only in developer-mode
+            # builds), so a relocated AppImage execs its helper processes at the build
+            # host's absolute path (missing on Fedora etc. -> "Failed to spawn
+            # WebKitNetworkProcess"). Compile a tiny LD_PRELOAD shim (set in AppRun)
+            # that rewrites those exec paths to the bundled copies under
+            # WEBKIT_EXEC_PATH. Source: token2-piv-gui/packaging/webkit-exec-redirect.c
+            gcc -shared -fPIC -O2 -o "$APPDIR/usr/lib/libwebkit-exec-redirect.so" \
+              "$GITHUB_WORKSPACE/token2-piv-gui/packaging/webkit-exec-redirect.c" -ldl \
+              && echo "built webkit-exec-redirect shim" \
+              || echo "WARNING: webkit-exec-redirect shim failed to build"
           else
             echo "WARNING: libwebkit2gtk-4.1 not found on builder; AppImage will rely on host WebKit"
           fi
@@ -154,6 +164,13 @@ jobs:
           # GPU drivers and on immutable distros (black window / early crash).
           if [ -d "$HERE/usr/lib/webkit2gtk-4.1" ]; then
             export WEBKIT_EXEC_PATH="$HERE/usr/lib/webkit2gtk-4.1"
+            # WebKitGTK 4.1 ignores WEBKIT_EXEC_PATH, so also preload the shim that
+            # rewrites the hardcoded helper-process path to the bundled one. Without
+            # this the app crashes on distros whose WebKit libexec path differs from
+            # the build host's (e.g. Fedora). Harmless if the .so is absent.
+            if [ -f "$HERE/usr/lib/libwebkit-exec-redirect.so" ]; then
+              export LD_PRELOAD="$HERE/usr/lib/libwebkit-exec-redirect.so${LD_PRELOAD:+:$LD_PRELOAD}"
+            fi
           fi
           export WEBKIT_DISABLE_COMPOSITING_MODE=1
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
