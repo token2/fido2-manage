@@ -1629,7 +1629,7 @@ pub fn pcsc_status() -> PcscStatus {
         }
         Err(e) => {
             let msg = if cfg!(target_os = "linux") {
-                format!("The PC/SC service isn't available ({e}). Install and start it:\n  sudo apt install pcscd libpcsclite1\n  sudo systemctl enable --now pcscd\nThen reinsert your key.")
+                format!("The PC/SC smart-card service (pcscd) isn't available ({e}), so FIDO2 and PIV can't be used; OTP over USB-HID still works. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid   (Fedora: sudo dnf install pcsc-lite ccid)\n  sudo systemctl enable --now pcscd.socket\nThen reinsert your key.")
             } else if cfg!(target_os = "macos") {
                 format!("The PC/SC service isn't responding ({e}). Try reinserting the key or rebooting.")
             } else {

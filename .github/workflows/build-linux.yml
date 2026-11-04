@@ -104,7 +104,7 @@ jobs:
           if [ -n "$WK_SO" ]; then
             WK_LIBDIR=$(dirname "$WK_SO")
             # libraries that MUST be resolved from the host (never bundle these)
-            EXCLUDE='^(ld-linux|ld-musl|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl|libgcc_s|libselinux|libcap|libGL|libGLX|libGLdispatch|libOpenGL|libEGL|libGLESv|libgbm|libdrm|libglapi|libxshmfence|libX11|libXext|libXau|libXdmcp|libxcb|libXrender|libXi|libXrandr|libXfixes|libXcursor|libXcomposite|libXdamage|libXinerama|libXtst|libXt|libSM|libICE|libXss|libxkbcommon|libwayland|libpcre2-8|libpcre|libffi|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libgthread-2\.0|libgtk-3|libgdk-3|libgdk_pixbuf-2\.0|libpango|libpangocairo|libpangoft2|libcairo|libatk|libharfbuzz|libfontconfig|libfreetype|libasound|libpulse|libsystemd|libudev|libdbus-1|libstdc\+\+)\.'
+            EXCLUDE='^(ld-linux|ld-musl|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl|libgcc_s|libselinux|libcap|libGL|libGLX|libGLdispatch|libOpenGL|libEGL|libGLESv|libgbm|libdrm|libglapi|libxshmfence|libX11|libXext|libXau|libXdmcp|libxcb|libXrender|libXi|libXrandr|libXfixes|libXcursor|libXcomposite|libXdamage|libXinerama|libXtst|libXt|libSM|libICE|libXss|libxkbcommon|libwayland|libpcre2-8|libpcre|libffi|libglycin|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libgthread-2\.0|libgtk-3|libgdk-3|libgdk_pixbuf-2\.0|libpango|libpangocairo|libpangoft2|libcairo|libatk|libharfbuzz|libfontconfig|libfreetype|libasound|libpulse|libsystemd|libudev|libdbus-1|libstdc\+\+)\.'
             # helper processes (WebKitNetworkProcess / WebKitWebProcess + injected bundle)
             if [ -d "$WK_LIBDIR/webkit2gtk-4.1" ]; then
               cp -r "$WK_LIBDIR/webkit2gtk-4.1" "$APPDIR/usr/lib/webkit2gtk-4.1"
@@ -215,7 +215,7 @@ jobs:
       - name: Build .deb
         run: |
           set -e
-          VER=0.2.1
+          VER=0.2.2
           PKG="$RUNNER_TEMP/deb/token2-key-manager"
           rm -rf "$PKG"; mkdir -p "$PKG/DEBIAN" "$PKG/opt/token2-key-manager" "$PKG/usr/bin" \
             "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/256x256/apps"
@@ -331,7 +331,7 @@ jobs:
       - name: Build .rpm
         run: |
           set -e
-          VER=0.2.1
+          VER=0.2.2
           # Reuse the .deb staging tree (opt/ + usr/) — it persists on disk between
           # steps. fpm packages the same payload as an RPM for Fedora/RHEL/openSUSE.
           PKG="$RUNNER_TEMP/deb/token2-key-manager"

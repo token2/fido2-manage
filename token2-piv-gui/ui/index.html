@@ -225,6 +225,9 @@
       <p>The slots on the key will appear here. Nothing is changed on the key until you choose an action.</p>
     </div>
     <div id="slots" hidden>
+      <div class="exp-note" style="background:#fff8e6;border:1px solid #f0d98a;color:#7a5d00;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+        ⚠️ Certificate management is currently <b>experimental</b>. Some issues have been reported and are being worked on.
+      </div>
       <h2>Slots</h2>
       <div id="primary-slots" class="tiles"></div>
       <details id="retired">
@@ -339,6 +342,7 @@
     <div id="about-board" hidden>
       <section class="settings-card about">
         <h1>Token2 Key Manager</h1>
+        <p class="hint" id="about-version"></p>
         <p class="hint">PIV, FIDO2, OTP and OpenPGP management for Token2 security keys — PIV via libt2piv, FIDO2 via libfido2 (PC/SC backend), OTP/OATH over PC/SC and the CTAPHID tunnel.</p>
         <p class="hint">© Token2 Sàrl. Released under open-source licences. Built with the following open-source software:</p>
 
