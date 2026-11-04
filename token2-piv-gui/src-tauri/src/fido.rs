@@ -1397,33 +1397,66 @@ pub fn presence() -> Presence {
 /// Unlike presence() (which counts readers), this checks the card state so a
 /// card lifted off an NFC reader is seen as removed even though the reader
 /// itself stays. Used by the guided FIDO reset to detect NFC tap off/on.
+/// Is the PC/SC service (pcscd) available?
+///
+/// On Linux we check the pcscd communication socket directly, because
+/// libpcsclite can establish a context lazily (SCardEstablishContext succeeds
+/// with no daemon) and reports a missing daemon inconsistently across distros
+/// (NoService on some, NoReadersAvailable on others), so neither establish nor
+/// list_readers is a reliable signal. The socket exists whenever pcscd is
+/// running or socket-activatable, and is absent when pcsc-lite is not installed.
+/// On Windows/macOS a plain SCardEstablishContext is reliable.
+fn pcscd_available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // 1) the communication socket (present when pcscd is running OR
+        //    socket-activatable, even before the daemon has been started).
+        if ["/run/pcscd/pcscd.comm", "/var/run/pcscd/pcscd.comm"]
+            .iter()
+            .any(|p| std::path::Path::new(p).exists())
+        {
+            return true;
+        }
+        // 2) the daemon process itself (covers a non-standard socket path).
+        //    Read /proc/<pid>/comm directly — no subprocess, works without root.
+        if let Ok(entries) = std::fs::read_dir("/proc") {
+            for e in entries.flatten() {
+                if let Ok(comm) = std::fs::read_to_string(e.path().join("comm")) {
+                    if comm.trim() == "pcscd" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use pcsc::{Context, Scope};
+        Context::establish(Scope::User).is_ok()
+    }
+}
+
+/// Actionable "pcscd is missing" message for the current OS.
+fn pcsc_unavailable_hint() -> String {
+    if cfg!(target_os = "linux") {
+        "The PC/SC smart-card service (pcscd) isn't available, so FIDO2 and PIV can't be used; OTP over USB-HID still works. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid   (Fedora: sudo dnf install pcsc-lite ccid)\n  sudo systemctl enable --now pcscd.socket\nThen reinsert your key.".to_string()
+    } else if cfg!(target_os = "macos") {
+        "The PC/SC smart-card service isn't responding. Reconnect the key or restart the app.".to_string()
+    } else {
+        "The Windows Smart Card service isn't running. Start it: in Services, set \"Smart Card\" (SCardSvr) to Automatic and Start it, then reinsert your key.".to_string()
+    }
+}
+
 /// Report whether the PC/SC smart-card service is reachable. On Linux this is the
 /// pcscd daemon; when it is down, FIDO and PIV (which use pcsc://) silently fail,
 /// so the UI uses this to show an actionable message instead of nothing.
 #[tauri::command]
 pub fn pcsc_health() -> PcscHealth {
-    use pcsc::{Context, Error, Scope};
-    let unavailable = |e: Error| -> PcscHealth {
-        let hint = if cfg!(target_os = "linux") {
-            "The PC/SC smart-card service (pcscd) is not available, so FIDO2 and PIV cannot be accessed. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid\n  sudo systemctl enable --now pcscd\nOTP still works over USB-HID.".to_string()
-        } else if cfg!(target_os = "macos") {
-            "The PC/SC smart-card service is not responding. Reconnect the key or restart the app.".to_string()
-        } else {
-            "The Windows Smart Card service is not running. Start it: in Services, set \"Smart Card\" to Automatic and Start it.".to_string()
-        };
-        PcscHealth { available: false, message: format!("{hint}\n\n(details: {e})") }
-    };
-    // libpcsclite may establish a context lazily (succeeds even when pcscd is
-    // absent); confirm the service with list_readers. "No readers" means the
-    // daemon is up but nothing is plugged in, which is available.
-    let ctx = match Context::establish(Scope::User) {
-        Ok(c) => c,
-        Err(e) => return unavailable(e),
-    };
-    let mut buf = vec![0u8; 4096];
-    match ctx.list_readers(&mut buf) {
-        Ok(_) | Err(Error::NoReadersAvailable) => PcscHealth { available: true, message: String::new() },
-        Err(e) => unavailable(e),
+    if pcscd_available() {
+        PcscHealth { available: true, message: String::new() }
+    } else {
+        PcscHealth { available: false, message: pcsc_unavailable_hint() }
     }
 }
 
@@ -1628,32 +1661,20 @@ pub fn capabilities_debug() -> String {
 /// always available.
 #[tauri::command]
 pub fn pcsc_status() -> PcscStatus {
-    use pcsc::{Context, Error, Scope};
-    let unavailable = |e: Error| -> PcscStatus {
-        let msg = if cfg!(target_os = "linux") {
-            format!("The PC/SC smart-card service (pcscd) isn't available ({e}), so FIDO2 and PIV can't be used; OTP over USB-HID still works. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid   (Fedora: sudo dnf install pcsc-lite ccid)\n  sudo systemctl enable --now pcscd.socket\nThen reinsert your key.")
-        } else if cfg!(target_os = "macos") {
-            format!("The PC/SC service isn't responding ({e}). Try reinserting the key or rebooting.")
-        } else {
-            format!("The Smart Card service isn't running ({e}). Open services.msc and start 'Smart Card' (SCardSvr), then reinsert your key.")
-        };
-        PcscStatus { ok: false, readers: 0, message: msg }
-    };
-    // Newer libpcsclite establishes a context LAZILY: SCardEstablishContext can
-    // succeed even when pcscd is absent, and the missing daemon only surfaces on
-    // SCardListReaders. So establish alone isn't proof the service works — we also
-    // require list_readers to not return a service error. "No readers available"
-    // (daemon up, nothing plugged in) is fine and counts as available.
-    let ctx = match Context::establish(Scope::User) {
-        Ok(c) => c,
-        Err(e) => return unavailable(e),
-    };
-    let mut buf = vec![0u8; 4096];
-    match ctx.list_readers(&mut buf) {
-        Ok(rs) => PcscStatus { ok: true, readers: rs.count(), message: String::new() },
-        Err(Error::NoReadersAvailable) => PcscStatus { ok: true, readers: 0, message: String::new() },
-        Err(e) => unavailable(e),
+    if !pcscd_available() {
+        return PcscStatus { ok: false, readers: 0, message: pcsc_unavailable_hint() };
     }
+    // Service is up — count the readers (best effort; establishing a context and
+    // listing readers is safe now that we know the daemon is there).
+    use pcsc::{Context, Scope};
+    let readers = Context::establish(Scope::User)
+        .ok()
+        .and_then(|ctx| {
+            let mut buf = vec![0u8; 4096];
+            ctx.list_readers(&mut buf).ok().map(|r| r.count())
+        })
+        .unwrap_or(0);
+    PcscStatus { ok: true, readers, message: String::new() }
 }
 
 #[derive(Serialize, Clone)]
