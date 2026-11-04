@@ -21,6 +21,7 @@ jobs:
           sudo apt-get install -y \
             libpcsclite-dev pcscd libssl-dev pkg-config cmake build-essential libudev-dev \
             libcbor-dev zlib1g-dev check \
+            patchelf librsvg2-common libgdk-pixbuf2.0-bin \
             libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
           # FUSE for appimagetool (package name differs across Ubuntu versions)
           sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64 || true
@@ -82,72 +83,21 @@ jobs:
           chmod +x "$RUNNER_TEMP/artifacts/portable/run.sh"
           ls -la "$RUNNER_TEMP/artifacts/portable" || true
 
-      - name: Build AppImage
+      - name: Build AppImage (linuxdeploy + gtk)
         run: |
           set -e
           APPDIR="$RUNNER_TEMP/AppDir"
-          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
-          # app payload: GUI + CLI tools + shared libs all together
-          cp "$RUNNER_TEMP/artifacts/portable/"* "$APPDIR/usr/bin/" 2>/dev/null || true
-          # move the shared libs into usr/lib (and keep a copy next to the bin for safety)
-          cp "$RUNNER_TEMP/artifacts/portable/"*.so* "$APPDIR/usr/lib/" 2>/dev/null || true
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/apprun-hooks" \
+                   "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          # ---- payload: GUI + CLI tools + our own PIV library -------------------
+          cp token2-piv-gui/src-tauri/target/release/token2-key-manager "$APPDIR/usr/bin/"
+          cp token2-piv-gui/src-tauri/target/release/fido2-manage      "$APPDIR/usr/bin/" 2>/dev/null || true
+          for f in /tmp/t2build/tool/*piv-tool; do [ -f "$f" ] && cp "$f" "$APPDIR/usr/bin/token2-piv-tool"; done
+          cp /tmp/t2build/lib/libt2piv.so* "$APPDIR/usr/lib/" 2>/dev/null || true
           chmod +x "$APPDIR/usr/bin/"* 2>/dev/null || true
-          # ---- bundle WebKitGTK so the AppImage runs on hosts that do NOT ship
-          #      libwebkit2gtk-4.1 (Fedora atomic / Universal Blue: Aurora, Kinoite,
-          #      Bazzite, Silverblue). We inject WebKit + JavaScriptCore + their
-          #      WebKit-private dependency closure, but deliberately leave the host
-          #      display stack (glibc, GL/EGL/driver, X11/Wayland, glib, GTK, pango,
-          #      cairo, libstdc++) to the host so the renderer matches the running
-          #      desktop. Without this the app crashes at launch with
-          #      "libwebkit2gtk-4.1.so.0: cannot open shared object file".
-          WK_SO=$(ls /usr/lib/*/libwebkit2gtk-4.1.so.0 2>/dev/null | head -1)
-          if [ -n "$WK_SO" ]; then
-            WK_LIBDIR=$(dirname "$WK_SO")
-            # libraries that MUST be resolved from the host (never bundle these)
-            EXCLUDE='^(ld-linux|ld-musl|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl|libgcc_s|libselinux|libcap|libmount|libblkid|libuuid|libGL|libGLX|libGLdispatch|libOpenGL|libEGL|libGLESv|libgbm|libdrm|libglapi|libxshmfence|libX11|libXext|libXau|libXdmcp|libxcb|libXrender|libXi|libXrandr|libXfixes|libXcursor|libXcomposite|libXdamage|libXinerama|libXtst|libXt|libSM|libICE|libXss|libxkbcommon|libwayland|libpcre2-8|libpcre|libffi|libglycin|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libgthread-2\.0|libgtk-3|libgdk-3|libgdk_pixbuf-2\.0|libpango|libpangocairo|libpangoft2|libcairo|libatk|libharfbuzz|libfontconfig|libfreetype|libasound|libpulse|libsystemd|libudev|libdbus-1|libstdc\+\+)\.'
-            # helper processes (WebKitNetworkProcess / WebKitWebProcess + injected bundle)
-            if [ -d "$WK_LIBDIR/webkit2gtk-4.1" ]; then
-              cp -r "$WK_LIBDIR/webkit2gtk-4.1" "$APPDIR/usr/lib/webkit2gtk-4.1"
-            fi
-            # recursive dependency closure of WebKit, JSC, the helper processes and
-            # the GUI binary; copy everything that is NOT on the host-resolve list
-            ROOTS="$WK_SO"
-            for extra in "$WK_LIBDIR"/libjavascriptcoregtk-4.1.so.0 \
-                         "$APPDIR/usr/lib/webkit2gtk-4.1/WebKitNetworkProcess" \
-                         "$APPDIR/usr/lib/webkit2gtk-4.1/WebKitWebProcess" \
-                         "$APPDIR/usr/bin/token2-key-manager"; do
-              [ -e "$extra" ] && ROOTS="$ROOTS $extra"
-            done
-            for root in $ROOTS; do
-              ldd "$root" 2>/dev/null | awk '/=> \//{print $3}'
-            done | sort -u | while read -r lib; do
-              b=$(basename "$lib")
-              echo "$b" | grep -Eq "$EXCLUDE" && continue
-              cp -Ln "$lib" "$APPDIR/usr/lib/" 2>/dev/null || true
-            done
-            echo "WebKit bundled from $WK_LIBDIR:"; ls "$APPDIR/usr/lib" | grep -Ei "webkit|javascriptcore|soup|gst" || true
-            # WebKitGTK 4.1 ignores WEBKIT_EXEC_PATH (honored only in developer-mode
-            # builds), so a relocated AppImage execs its helper processes at the build
-            # host's absolute path (missing on Fedora etc. -> "Failed to spawn
-            # WebKitNetworkProcess"). Compile a tiny LD_PRELOAD shim (set in AppRun)
-            # that rewrites those exec paths to the bundled copies under
-            # WEBKIT_EXEC_PATH. Source: token2-piv-gui/packaging/webkit-exec-redirect.c
-            gcc -shared -fPIC -O2 -o "$APPDIR/usr/lib/libwebkit-exec-redirect.so" \
-              "$GITHUB_WORKSPACE/token2-piv-gui/packaging/webkit-exec-redirect.c" -ldl \
-              && echo "built webkit-exec-redirect shim" \
-              || echo "WARNING: webkit-exec-redirect shim failed to build"
-          else
-            echo "WARNING: libwebkit2gtk-4.1 not found on builder; AppImage will rely on host WebKit"
-          fi
-          # ---- icon (AppImage needs it in several places) ----
           ICON=token2-piv-gui/src-tauri/icons/icon.png
-          if [ -f "$ICON" ]; then
-            cp "$ICON" "$APPDIR/token2-key-manager.png"                       # AppDir-root icon
-            cp "$ICON" "$APPDIR/.DirIcon"                                     # icon of the .AppImage file itself
-            install -Dm644 "$ICON" "$APPDIR/usr/share/icons/hicolor/256x256/apps/token2-key-manager.png"
-          fi
-          # ---- .desktop (both at AppDir root AND the standard path) ----
-          mkdir -p "$APPDIR/usr/share/applications"
+          cp "$ICON" "$APPDIR/usr/share/icons/hicolor/256x256/apps/token2-key-manager.png"
           cat > "$APPDIR/usr/share/applications/token2-key-manager.desktop" <<EOF
           [Desktop Entry]
           Type=Application
@@ -158,58 +108,61 @@ jobs:
           Categories=Utility;Security;
           Terminal=false
           EOF
-          cp "$APPDIR/usr/share/applications/token2-key-manager.desktop" "$APPDIR/token2-key-manager.desktop"
-          # AppRun: set LD_LIBRARY_PATH so the GUI and CLIs find the bundled libs
-          cat > "$APPDIR/AppRun" <<'EOF'
-          #!/bin/sh
-          HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/bin:$LD_LIBRARY_PATH"
-          # If WebKit was bundled, point it at the bundled helper processes and
-          # disable the DMABUF / compositing renderer paths that fail under some
-          # GPU drivers and on immutable distros (black window / early crash).
-          if [ -d "$HERE/usr/lib/webkit2gtk-4.1" ]; then
-            export WEBKIT_EXEC_PATH="$HERE/usr/lib/webkit2gtk-4.1"
-            # WebKitGTK 4.1 ignores WEBKIT_EXEC_PATH, so also preload the shim that
-            # rewrites the hardcoded helper-process path to the bundled one. Without
-            # this the app crashes on distros whose WebKit libexec path differs from
-            # the build host's (e.g. Fedora). Harmless if the .so is absent.
-            if [ -f "$HERE/usr/lib/libwebkit-exec-redirect.so" ]; then
-              export LD_PRELOAD="$HERE/usr/lib/libwebkit-exec-redirect.so${LD_PRELOAD:+:$LD_PRELOAD}"
-            fi
+          # ---- WebKitGTK helper processes + path-redirect shim ------------------
+          # linuxdeploy-plugin-gtk bundles the GTK / glib / gdk-pixbuf / webkit
+          # *library* stack as ONE consistent set (and host-resolves the base system
+          # via the maintained AppImage excludelist), which ends the per-distro SONAME
+          # shadowing (pcre2 / glycin / mount / ...). But it does NOT know about
+          # WebKit's separate helper EXECUTABLES, whose directory is hardcoded at
+          # compile time and ignored by WEBKIT_EXEC_PATH on 4.1. So we still bundle
+          # the helper dir and preload the path-rewrite shim (set in the hook below).
+          WK_SO=$(ls /usr/lib/*/libwebkit2gtk-4.1.so.0 2>/dev/null | head -1)
+          if [ -n "$WK_SO" ]; then
+            WK_LIBDIR=$(dirname "$WK_SO")
+            [ -d "$WK_LIBDIR/webkit2gtk-4.1" ] && cp -r "$WK_LIBDIR/webkit2gtk-4.1" "$APPDIR/usr/lib/webkit2gtk-4.1"
+            gcc -shared -fPIC -O2 -o "$APPDIR/usr/lib/libwebkit-exec-redirect.so" \
+              "$GITHUB_WORKSPACE/token2-piv-gui/packaging/webkit-exec-redirect.c" -ldl \
+              && echo "built webkit-exec-redirect shim" || echo "WARNING: shim build failed"
+          fi
+          # apprun-hook: linuxdeploy's generated AppRun sources everything in
+          # apprun-hooks/ before launching the app.
+          cat > "$APPDIR/apprun-hooks/10-token2.sh" <<'EOF'
+          if [ -d "$APPDIR/usr/lib/webkit2gtk-4.1" ]; then
+            export WEBKIT_EXEC_PATH="$APPDIR/usr/lib/webkit2gtk-4.1"
+            [ -f "$APPDIR/usr/lib/libwebkit-exec-redirect.so" ] && \
+              export LD_PRELOAD="$APPDIR/usr/lib/libwebkit-exec-redirect.so${LD_PRELOAD:+:$LD_PRELOAD}"
           fi
           export WEBKIT_DISABLE_COMPOSITING_MODE=1
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
-          # Multi-binary AppImage. Pick which bundled program to run:
-          #  1) if invoked by a name matching a bundled tool (symlink the AppImage to
-          #     "fido2-manage" or set ARGV0), run that tool;
-          #  2) "--tool NAME [args]" runs that bundled tool explicitly;
-          #  3) otherwise launch the GUI.
-          base="$(basename "${ARGV0:-$0}")"
-          if [ -x "$HERE/usr/bin/$base" ] && [ "$base" != "token2-key-manager" ] && [ "$base" != "AppRun" ]; then
-            exec "$HERE/usr/bin/$base" "$@"
-          fi
-          if [ "$1" = "--tool" ] && [ -n "$2" ]; then tool="$2"; shift 2; exec "$HERE/usr/bin/$tool" "$@"; fi
-          exec "$HERE/usr/bin/token2-key-manager" "$@"
           EOF
-          chmod +x "$APPDIR/AppRun"
-          # fetch appimagetool; extract it so we don't need FUSE to RUN the tool itself
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /tmp/appimagetool
-          chmod +x /tmp/appimagetool
-          ( cd /tmp && ./appimagetool --appimage-extract >/dev/null 2>&1 ) || true
-          TOOL="/tmp/squashfs-root/AppRun"
-          [ -x "$TOOL" ] || TOOL="/tmp/appimagetool"
-          # Use the modern "type2-runtime" instead of the old AppImageKit runtime.
-          # The old runtime needs libfuse.so.2 on the END USER's machine, which
-          # Fedora and other recent distros no longer ship (only FUSE 3) — so the
-          # app failed with "AppImages require FUSE to run". type2-runtime statically
-          # links libfuse3 and auto-falls back to extract-and-run when FUSE is
-          # unavailable, so the AppImage runs without the user installing anything.
-          RUNTIME=/tmp/runtime-x86_64
-          wget -q https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 -O "$RUNTIME" && chmod +x "$RUNTIME" || RUNTIME=""
-          RTOPT=""; [ -n "$RUNTIME" ] && [ -s "$RUNTIME" ] && RTOPT="--runtime-file $RUNTIME"
-          # build. ARCH is required.
-          ARCH=x86_64 "$TOOL" $RTOPT "$APPDIR" "$RUNNER_TEMP/artifacts/Token2-Key-Manager-x86_64.AppImage" \
-            || ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run $RTOPT "$APPDIR" "$RUNNER_TEMP/artifacts/Token2-Key-Manager-x86_64.AppImage"
+          # ---- run linuxdeploy + gtk plugin to populate & patch the AppDir --------
+          mkdir -p "$RUNNER_TEMP/ld"
+          ( cd "$RUNNER_TEMP/ld"
+            wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+            wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/raw/master/linuxdeploy-plugin-gtk.sh
+            chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-gtk.sh
+            ./linuxdeploy-x86_64.AppImage --appimage-extract >/dev/null
+            cp linuxdeploy-plugin-gtk.sh squashfs-root/usr/bin/ )
+          export PATH="$RUNNER_TEMP/ld/squashfs-root/usr/bin:$PATH"
+          LT2="$(ls "$APPDIR"/usr/lib/libt2piv.so.2* 2>/dev/null | head -1)"
+          "$RUNNER_TEMP/ld/squashfs-root/AppRun" \
+            --appdir "$APPDIR" \
+            --plugin gtk \
+            --executable "$APPDIR/usr/bin/token2-key-manager" \
+            ${LT2:+--library "$LT2"} \
+            --desktop-file "$APPDIR/usr/share/applications/token2-key-manager.desktop" \
+            --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/token2-key-manager.png"
+          # ---- package with appimagetool + modern type2-runtime (no libfuse2) ----
+          mkdir -p "$RUNNER_TEMP/ait" "$RUNNER_TEMP/artifacts"
+          ( cd "$RUNNER_TEMP/ait"
+            wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+            chmod +x appimagetool-x86_64.AppImage
+            ./appimagetool-x86_64.AppImage --appimage-extract >/dev/null
+            wget -q https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 -O runtime-x86_64 && chmod +x runtime-x86_64 || true )
+          RT="$RUNNER_TEMP/ait/runtime-x86_64"
+          RTOPT=""; [ -s "$RT" ] && RTOPT="--runtime-file $RT"
+          ARCH=x86_64 "$RUNNER_TEMP/ait/squashfs-root/AppRun" $RTOPT \
+            "$APPDIR" "$RUNNER_TEMP/artifacts/Token2-Key-Manager-x86_64.AppImage"
           ls -la "$RUNNER_TEMP/artifacts/" || true
 
       - name: Build .deb
