@@ -9,9 +9,11 @@
 #     ./sign-notarize-macos.sh "/path/to/token2-key-manager-macos"   # folder containing the .app
 #     ./sign-notarize-macos.sh "/path/to/Token2-Key-Manager.dmg"     # we extract the .app from it
 #
-#   Portable CLI binaries — signs every Mach-O in a folder inside-out, then wraps
-#   the folder in a DMG, notarizes and staples it:
+#   Portable CLI binaries — signs every Mach-O in a folder inside-out and notarizes
+#   the loose binaries (no DMG; they stay a plain folder):
 #     ./sign-notarize-macos.sh --portable "/path/to/portable-folder"
+#   Add --dmg to ALSO build a stapled Token2-Key-Manager-CLI.dmg (verifies offline):
+#     ./sign-notarize-macos.sh --portable --dmg "/path/to/portable-folder"
 #
 # Prerequisites (one-time):
 #   1. A "Developer ID Application" certificate in your login keychain.
@@ -38,8 +40,20 @@ die() { printf "\033[1;31merror:\033[0m %s\n" "$*" >&2; exit 1; }
 
 # ---- parse mode ----
 MODE="app"
-if [ "${1:-}" = "--portable" ]; then MODE="portable"; shift; fi
-[ $# -ge 1 ] || die "usage: $0 [--portable] <path-to-.app | folder | .dmg>"
+PORTABLE_DMG=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --portable) MODE="portable"; shift ;;
+    --dmg)      PORTABLE_DMG=1;   shift ;;   # portable mode: also build a stapled DMG
+    --)         shift; break ;;
+    -*)         die "unknown option: $1" ;;
+    *)          break ;;
+  esac
+done
+[ $# -ge 1 ] || die "usage:
+  $0 <path-to-.app | folder | .dmg>          # sign + notarize + staple the GUI app, in a DMG
+  $0 --portable <folder>                     # sign + notarize the loose CLI binaries (no DMG)
+  $0 --portable --dmg <folder>               # ... and also build a stapled Token2-Key-Manager-CLI.dmg"
 INPUT="$1"
 
 WORK="$(mktemp -d)"
@@ -83,6 +97,21 @@ sign_machos() {
   done
 }
 
+# ---- helper: notarize loose binaries via a throwaway zip (can't staple these) ----
+notarize_loose() {
+  local dir="$1"
+  local zip="$WORK/notarize-payload.zip"
+  say "Zipping the folder for notary submission…"
+  ( cd "$dir" && /usr/bin/zip -qr "$zip" . )
+  say "Submitting to Apple notary service (this can take a few minutes)…"
+  xcrun notarytool submit "$zip" --keychain-profile "$NOTARY_PROFILE" --wait
+  rm -f "$zip"
+  say "Notarized. Verifying the signed binaries:"
+  for probe in fido2-manage token2-piv-tool token2-key-manager; do
+    [ -e "$dir/$probe" ] && codesign --verify --strict --verbose=2 "$dir/$probe"
+  done
+}
+
 # ---- helper: build a DMG from a staging dir, sign it, notarize, staple, verify ----
 build_sign_notarize_staple() {
   local srcdir="$1" volname="$2" out_dmg="$3"
@@ -121,10 +150,18 @@ if [ "$MODE" = "portable" ]; then
     [ -e "$DIR/$probe" ] && codesign --verify --strict --verbose=2 "$DIR/$probe"
   done
 
-  # stage the folder into the DMG
-  STAGE="$WORK/dmgroot"; mkdir -p "$STAGE"
-  cp -R "$DIR" "$STAGE/"
-  build_sign_notarize_staple "$STAGE" "$VOLNAME" "$OUT_DMG"
+  # notarize the loose binaries (no DMG) — ticket can't be stapled to bare files,
+  # so these pass Gatekeeper when the Mac is online.
+  notarize_loose "$DIR"
+  printf "\n\033[1;32mDone.\033[0m Signed + notarized binaries in: %s\n" "$DIR"
+  printf "   (Loose binaries can't be stapled, so an offline first-run may be blocked.\n"
+  printf "    For an offline-verifiable, stapled artifact, re-run with --dmg.)\n"
+
+  if [ "$PORTABLE_DMG" = "1" ]; then
+    STAGE="$WORK/dmgroot"; mkdir -p "$STAGE"
+    cp -R "$DIR" "$STAGE/"
+    build_sign_notarize_staple "$STAGE" "$VOLNAME" "$OUT_DMG"
+  fi
   exit 0
 fi
 
