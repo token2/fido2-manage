@@ -8,6 +8,14 @@ use std::sync::Mutex;
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            // Show the running version in the window title bar.
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_title(&format!("Token2 Key Manager {}", env!("CARGO_PKG_VERSION")));
+            }
+            Ok(())
+        })
         .manage(AppState(Mutex::new(Session::default())))
         .manage(FidoState(Mutex::new(FidoSession::default())))
         .manage(OathState(Mutex::new(OathSession::default())))
@@ -120,6 +128,7 @@ fn main() {
             qr_decode_image,
             qr_scan_screen,
             qr_scan_file,
+            app_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running token2-piv-gui");

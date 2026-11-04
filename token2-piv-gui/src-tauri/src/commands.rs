@@ -5,6 +5,12 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
 
+/// The application version (from Cargo.toml), shown in the title bar and About.
+#[tauri::command]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[derive(Default)]
 pub struct Session {
     piv: Option<Piv>,

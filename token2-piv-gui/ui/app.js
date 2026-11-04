@@ -2525,6 +2525,8 @@ async function checkPcsc() {
 document.getElementById("pcsc-warn-x") && document.getElementById("pcsc-warn-x").addEventListener("click", () => { const w=document.getElementById("pcsc-warn"); if (w) w.hidden = true; });
 checkPcsc();
 setInterval(checkPcsc, 5000);
+// show the running version on the About page (title bar is set natively)
+invoke("app_version").then((v) => { const e = document.getElementById("about-version"); if (e && v) e.textContent = "Version " + v; }).catch(() => {});
 setInterval(poll, 1000);
 poll();
 
