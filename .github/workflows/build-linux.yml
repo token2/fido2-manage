@@ -144,12 +144,25 @@ jobs:
             ./linuxdeploy-x86_64.AppImage --appimage-extract >/dev/null
             cp linuxdeploy-plugin-gtk.sh squashfs-root/usr/bin/ )
           export PATH="$RUNNER_TEMP/ld/squashfs-root/usr/bin:$PATH"
-          LT2="$(ls "$APPDIR"/usr/lib/libt2piv.so.2* 2>/dev/null | head -1)"
+          # linuxdeploy resolves each binary's NEEDED libs via the loader search path,
+          # so put the dirs holding our own lib (libt2piv) and the bundled WebKit libs
+          # on it; otherwise it errors "Could not find dependency: libt2piv.so.2".
+          export LD_LIBRARY_PATH="/tmp/t2build/lib:$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          LT2="$(ls "$APPDIR"/usr/lib/libt2piv.so.2.* 2>/dev/null | head -1)"
+          # Also deploy the WebKit HELPER executables' own dependencies and patch
+          # their RPATH in place (keeps them under webkit2gtk-4.1/ where WEBKIT_EXEC_PATH
+          # points). Without this the web/network process is missing libs, starts but
+          # cannot render -> the app opens an EMPTY window.
+          DDO=""
+          for h in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess; do
+            [ -x "$APPDIR/usr/lib/webkit2gtk-4.1/$h" ] && DDO="$DDO --deploy-deps-only $APPDIR/usr/lib/webkit2gtk-4.1/$h"
+          done
           "$RUNNER_TEMP/ld/squashfs-root/AppRun" \
             --appdir "$APPDIR" \
             --plugin gtk \
             --executable "$APPDIR/usr/bin/token2-key-manager" \
             ${LT2:+--library "$LT2"} \
+            $DDO \
             --desktop-file "$APPDIR/usr/share/applications/token2-key-manager.desktop" \
             --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/token2-key-manager.png"
           # ---- package with appimagetool + modern type2-runtime (no libfuse2) ----
