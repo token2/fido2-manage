@@ -1402,19 +1402,28 @@ pub fn presence() -> Presence {
 /// so the UI uses this to show an actionable message instead of nothing.
 #[tauri::command]
 pub fn pcsc_health() -> PcscHealth {
-    use pcsc::{Context, Scope};
-    match Context::establish(Scope::User) {
-        Ok(_) => PcscHealth { available: true, message: String::new() },
-        Err(e) => {
-            let hint = if cfg!(target_os = "linux") {
-                "The PC/SC smart-card service (pcscd) is not available, so FIDO2 and PIV cannot be accessed. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid\n  sudo systemctl enable --now pcscd\nOTP still works over USB-HID.".to_string()
-            } else if cfg!(target_os = "macos") {
-                "The PC/SC smart-card service is not responding. Reconnect the key or restart the app.".to_string()
-            } else {
-                "The Windows Smart Card service is not running. Start it: in Services, set \"Smart Card\" to Automatic and Start it.".to_string()
-            };
-            PcscHealth { available: false, message: format!("{hint}\n\n(details: {e})") }
-        }
+    use pcsc::{Context, Error, Scope};
+    let unavailable = |e: Error| -> PcscHealth {
+        let hint = if cfg!(target_os = "linux") {
+            "The PC/SC smart-card service (pcscd) is not available, so FIDO2 and PIV cannot be accessed. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid\n  sudo systemctl enable --now pcscd\nOTP still works over USB-HID.".to_string()
+        } else if cfg!(target_os = "macos") {
+            "The PC/SC smart-card service is not responding. Reconnect the key or restart the app.".to_string()
+        } else {
+            "The Windows Smart Card service is not running. Start it: in Services, set \"Smart Card\" to Automatic and Start it.".to_string()
+        };
+        PcscHealth { available: false, message: format!("{hint}\n\n(details: {e})") }
+    };
+    // libpcsclite may establish a context lazily (succeeds even when pcscd is
+    // absent); confirm the service with list_readers. "No readers" means the
+    // daemon is up but nothing is plugged in, which is available.
+    let ctx = match Context::establish(Scope::User) {
+        Ok(c) => c,
+        Err(e) => return unavailable(e),
+    };
+    let mut buf = vec![0u8; 4096];
+    match ctx.list_readers(&mut buf) {
+        Ok(_) | Err(Error::NoReadersAvailable) => PcscHealth { available: true, message: String::new() },
+        Err(e) => unavailable(e),
     }
 }
 
@@ -1619,24 +1628,31 @@ pub fn capabilities_debug() -> String {
 /// always available.
 #[tauri::command]
 pub fn pcsc_status() -> PcscStatus {
-    use pcsc::{Context, Scope};
-    match Context::establish(Scope::User) {
-        Ok(ctx) => {
-            // establish succeeded — the service is up. list_readers just confirms.
-            let mut buf = vec![0u8; 4096];
-            let readers = ctx.list_readers(&mut buf).map(|r| r.count()).unwrap_or(0);
-            PcscStatus { ok: true, readers, message: String::new() }
-        }
-        Err(e) => {
-            let msg = if cfg!(target_os = "linux") {
-                format!("The PC/SC smart-card service (pcscd) isn't available ({e}), so FIDO2 and PIV can't be used; OTP over USB-HID still works. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid   (Fedora: sudo dnf install pcsc-lite ccid)\n  sudo systemctl enable --now pcscd.socket\nThen reinsert your key.")
-            } else if cfg!(target_os = "macos") {
-                format!("The PC/SC service isn't responding ({e}). Try reinserting the key or rebooting.")
-            } else {
-                format!("The Smart Card service isn't running ({e}). Open services.msc and start 'Smart Card' (SCardSvr), then reinsert your key.")
-            };
-            PcscStatus { ok: false, readers: 0, message: msg }
-        }
+    use pcsc::{Context, Error, Scope};
+    let unavailable = |e: Error| -> PcscStatus {
+        let msg = if cfg!(target_os = "linux") {
+            format!("The PC/SC smart-card service (pcscd) isn't available ({e}), so FIDO2 and PIV can't be used; OTP over USB-HID still works. Install and start it:\n  sudo apt install pcscd libpcsclite1 libccid   (Fedora: sudo dnf install pcsc-lite ccid)\n  sudo systemctl enable --now pcscd.socket\nThen reinsert your key.")
+        } else if cfg!(target_os = "macos") {
+            format!("The PC/SC service isn't responding ({e}). Try reinserting the key or rebooting.")
+        } else {
+            format!("The Smart Card service isn't running ({e}). Open services.msc and start 'Smart Card' (SCardSvr), then reinsert your key.")
+        };
+        PcscStatus { ok: false, readers: 0, message: msg }
+    };
+    // Newer libpcsclite establishes a context LAZILY: SCardEstablishContext can
+    // succeed even when pcscd is absent, and the missing daemon only surfaces on
+    // SCardListReaders. So establish alone isn't proof the service works — we also
+    // require list_readers to not return a service error. "No readers available"
+    // (daemon up, nothing plugged in) is fine and counts as available.
+    let ctx = match Context::establish(Scope::User) {
+        Ok(c) => c,
+        Err(e) => return unavailable(e),
+    };
+    let mut buf = vec![0u8; 4096];
+    match ctx.list_readers(&mut buf) {
+        Ok(rs) => PcscStatus { ok: true, readers: rs.count(), message: String::new() },
+        Err(Error::NoReadersAvailable) => PcscStatus { ok: true, readers: 0, message: String::new() },
+        Err(e) => unavailable(e),
     }
 }
 
