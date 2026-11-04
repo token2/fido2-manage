@@ -2,10 +2,16 @@
 #
 # sign-notarize-macos.sh — codesign + notarize + staple the macOS build.
 #
-# Run this on your Mac against the artifact downloaded from the "Build macOS"
-# CI run (the token2-key-manager-macos zip). It signs the .app with your
-# Developer ID Application certificate, (re)builds a DMG around the signed app,
-# notarizes it with Apple, and staples the ticket.
+# Two modes:
+#
+#   App / DMG (default) — signs the GUI .app, wraps it in a DMG, notarizes, staples:
+#     ./sign-notarize-macos.sh "/path/to/Token2 Key Manager.app"
+#     ./sign-notarize-macos.sh "/path/to/token2-key-manager-macos"   # folder containing the .app
+#     ./sign-notarize-macos.sh "/path/to/Token2-Key-Manager.dmg"     # we extract the .app from it
+#
+#   Portable CLI binaries — signs every Mach-O in a folder inside-out, then wraps
+#   the folder in a DMG, notarizes and staples it:
+#     ./sign-notarize-macos.sh --portable "/path/to/portable-folder"
 #
 # Prerequisites (one-time):
 #   1. A "Developer ID Application" certificate in your login keychain.
@@ -18,27 +24,115 @@
 #      xcrun notarytool store-credentials "notary-profile" \
 #        --apple-id "you@example.com" --team-id "BWF2GDTZ48" --password "<app-specific-password>"
 #
-# Usage:
-#   ./sign-notarize-macos.sh "/path/to/Token2 Key Manager.app"
-#   ./sign-notarize-macos.sh "/path/to/token2-key-manager-macos"   # a folder containing the .app
-#   ./sign-notarize-macos.sh "/path/to/Token2-Key-Manager.dmg"     # we extract the .app from it
+# Env overrides:
+#   NOTARY_PROFILE   notary keychain profile name     (default: notary-profile)
+#   OUT_DMG          output DMG filename              (defaults per mode)
 #
 set -euo pipefail
 
 TEAM_ID="BWF2GDTZ48"
 NOTARY_PROFILE="${NOTARY_PROFILE:-notary-profile}"
-VOLNAME="Token2 Key Manager"
-OUT_DMG="${OUT_DMG:-Token2-Key-Manager.dmg}"
 
 say() { printf "\033[1;36m==>\033[0m %s\n" "$*"; }
 die() { printf "\033[1;31merror:\033[0m %s\n" "$*" >&2; exit 1; }
 
-[ $# -ge 1 ] || die "usage: $0 <path-to-.app | folder-with-.app | .dmg>"
+# ---- parse mode ----
+MODE="app"
+if [ "${1:-}" = "--portable" ]; then MODE="portable"; shift; fi
+[ $# -ge 1 ] || die "usage: $0 [--portable] <path-to-.app | folder | .dmg>"
 INPUT="$1"
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# ---- 1. locate the .app from whatever was passed in ----
+# ---- find the Developer ID *Application* identity (not Installer) ----
+say "Looking for a Developer ID Application certificate…"
+IDLINE="$(security find-identity -v -p codesigning \
+  | grep "Developer ID Application" | grep "$TEAM_ID" | head -1 || true)"
+[ -n "$IDLINE" ] || die "No 'Developer ID Application' cert for team $TEAM_ID in your keychain.
+       You may have an Installer cert (that signs .pkg only). Create an Application
+       cert at https://developer.apple.com/account/resources/certificates"
+ID="$(echo "$IDLINE" | sed -E 's/^[^"]*"([^"]+)".*/\1/')"
+say "Signing identity: $ID"
+
+# ---- entitlements (Tauri/WebKit + loading our own dylibs under hardened runtime;
+#      harmless on the CLI binaries, needed if a GUI binary is present) ----
+ENT="$WORK/entitlements.plist"
+cat > "$ENT" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>
+PLIST
+
+# ---- helper: sign every Mach-O under a path, inside-out (deepest files first) ----
+sign_machos() {
+  local root="$1"
+  # reverse-depth order so nested dylibs are signed before the things that load them
+  /usr/bin/find "$root" -type f -print | /usr/bin/awk '{ print gsub(/\//,"/"), $0 }' \
+    | sort -rn | cut -d' ' -f2- | while IFS= read -r f; do
+    if file "$f" | grep -q "Mach-O"; then
+      codesign --force --timestamp --options runtime \
+        --entitlements "$ENT" --sign "$ID" "$f"
+    fi
+  done
+}
+
+# ---- helper: build a DMG from a staging dir, sign it, notarize, staple, verify ----
+build_sign_notarize_staple() {
+  local srcdir="$1" volname="$2" out_dmg="$3"
+  say "Building DMG…"
+  rm -f "$out_dmg"
+  hdiutil create -volname "$volname" -srcfolder "$srcdir" -ov -format UDZO "$out_dmg" >/dev/null
+  say "Signing DMG…"
+  codesign --force --timestamp --sign "$ID" "$out_dmg"
+  say "Submitting to Apple notary service (this can take a few minutes)…"
+  xcrun notarytool submit "$out_dmg" --keychain-profile "$NOTARY_PROFILE" --wait
+  say "Stapling the ticket…"
+  xcrun stapler staple "$out_dmg"
+  xcrun stapler validate "$out_dmg"
+  say "Gatekeeper assessment:"
+  spctl -a -t open --context context:primary-signature -vv "$out_dmg" || true
+  printf "\n\033[1;32mDone.\033[0m Notarized, stapled DMG: %s\n" "$out_dmg"
+}
+
+# =====================================================================
+if [ "$MODE" = "portable" ]; then
+  # ------------------------- PORTABLE CLI MODE -------------------------
+  DIR="$INPUT"
+  [ -d "$DIR" ] || die "not a folder: $DIR"
+  OUT_DMG="${OUT_DMG:-Token2-Key-Manager-CLI.dmg}"
+  VOLNAME="Token2 Key Manager CLI"
+  say "Portable folder: $DIR"
+
+  say "Clearing extended attributes…"
+  xattr -cr "$DIR" 2>/dev/null || true
+
+  say "Signing every Mach-O in the folder (dylibs first, then executables)…"
+  sign_machos "$DIR"
+
+  # sanity-check the binaries we expect (fails early if a signature didn't take)
+  for probe in fido2-manage token2-piv-tool token2-key-manager; do
+    [ -e "$DIR/$probe" ] && codesign --verify --strict --verbose=2 "$DIR/$probe"
+  done
+
+  # stage the folder into the DMG
+  STAGE="$WORK/dmgroot"; mkdir -p "$STAGE"
+  cp -R "$DIR" "$STAGE/"
+  build_sign_notarize_staple "$STAGE" "$VOLNAME" "$OUT_DMG"
+  exit 0
+fi
+
+# ------------------------- APP / DMG MODE (default) -------------------------
+OUT_DMG="${OUT_DMG:-Token2-Key-Manager.dmg}"
+VOLNAME="Token2 Key Manager"
+
+# ---- locate the .app from whatever was passed in ----
 APP=""
 case "$INPUT" in
   *.app)
@@ -60,47 +154,13 @@ esac
 [ -d "$APP" ] || die "not a bundle: $APP"
 say "App bundle: $APP"
 
-# ---- 2. find the Developer ID *Application* identity (not Installer) ----
-say "Looking for a Developer ID Application certificate…"
-IDLINE="$(security find-identity -v -p codesigning \
-  | grep "Developer ID Application" | grep "$TEAM_ID" | head -1 || true)"
-[ -n "$IDLINE" ] || die "No 'Developer ID Application' cert for team $TEAM_ID in your keychain.
-       You have an Installer cert (that signs .pkg only). Create an Application
-       cert at https://developer.apple.com/account/resources/certificates"
-# the identity is the quoted name on that line
-ID="$(echo "$IDLINE" | sed -E 's/^[^"]*"([^"]+)".*/\1/')"
-say "Signing identity: $ID"
-
-# ---- 3. remove quarantine + stray extended attributes (cause 'resource fork' codesign errors) ----
+# ---- remove quarantine + stray extended attributes (avoid 'resource fork' errors) ----
 say "Clearing extended attributes…"
 xattr -cr "$APP" 2>/dev/null || true
 
-# ---- 4. entitlements (Tauri/WebKit + loading our own dylibs under hardened runtime) ----
-ENT="$WORK/entitlements.plist"
-cat > "$ENT" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>com.apple.security.cs.allow-jit</key><true/>
-  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
-  <key>com.apple.security.cs.disable-library-validation</key><true/>
-</dict>
-</plist>
-PLIST
-
-# ---- 5. sign inside-out: nested dylibs + helper binaries first, bundle last ----
+# ---- sign inside-out: nested dylibs + helper binaries first, bundle last ----
 say "Signing nested dylibs and CLI tools…"
-# every Mach-O file under the bundle except the main executable
-/usr/bin/find "$APP/Contents" -type f | while IFS= read -r f; do
-  # is it a Mach-O (dylib or executable)?
-  if file "$f" | grep -q "Mach-O"; then
-    codesign --force --timestamp --options runtime \
-      --entitlements "$ENT" --sign "$ID" "$f" >/dev/null 2>&1 || \
-      codesign --force --timestamp --options runtime \
-        --entitlements "$ENT" --sign "$ID" "$f"
-  fi
-done
+sign_machos "$APP/Contents"
 
 say "Signing the .app bundle…"
 codesign --force --timestamp --options runtime \
@@ -109,25 +169,8 @@ codesign --force --timestamp --options runtime \
 say "Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-# ---- 6. (re)build a DMG around the signed app ----
-say "Building DMG…"
+# ---- build DMG around the signed app (+ Applications symlink) ----
 STAGE="$WORK/dmgroot"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications" 2>/dev/null || true
-rm -f "$OUT_DMG"
-hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" -ov -format UDZO "$OUT_DMG" >/dev/null
-say "Signing DMG…"
-codesign --force --timestamp --sign "$ID" "$OUT_DMG"
-
-# ---- 7. notarize + staple ----
-say "Submitting to Apple notary service (this can take a few minutes)…"
-xcrun notarytool submit "$OUT_DMG" --keychain-profile "$NOTARY_PROFILE" --wait
-
-say "Stapling the ticket…"
-xcrun stapler staple "$OUT_DMG"
-xcrun stapler validate "$OUT_DMG"
-
-say "Gatekeeper assessment:"
-spctl -a -t open --context context:primary-signature -vv "$OUT_DMG" || true
-
-printf "\n\033[1;32mDone.\033[0m Notarized, stapled DMG: %s\n" "$OUT_DMG"
+build_sign_notarize_staple "$STAGE" "$VOLNAME" "$OUT_DMG"
