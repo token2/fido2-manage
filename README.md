@@ -133,7 +133,11 @@ build, `-ToolOnly`, `-VcpkgPath D:\vcpkg`.
 Built in CI (`.github/workflows/build-linux.yml`, `build-macos.yml`), runnable
 manually from the Actions tab. They build `libt2piv` and `libfido2`, the Rust
 `fido2-manage` CLI and the GUI, bundle the shared libraries, and produce the
-packages above.
+packages above. Refer to this [document](BUILD-linux.md) for instructions for building 
+the tool on your system.
+
+ 
+
 
 ## Repository layout
 
