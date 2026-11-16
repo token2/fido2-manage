@@ -6,14 +6,71 @@ use token2_keymanager::oath::*;
 use token2_keymanager::t2otp::*;
 use std::sync::Mutex;
 
+/// Optional override for the WebView2 (Windows) / WebKit (Linux) user-data folder.
+///
+/// Why: when the app is launched elevated under a *separate* admin account
+/// (over-the-shoulder elevation, LAPS, `runas /user:`), WebView2 cannot create
+/// its default data folder under that account's profile and the app fails with
+/// "We couldn't create the data directory" (issue #66). WebView2 ignores the
+/// `WEBVIEW2_*` environment variables for elevated hosts, and there is no
+/// registry override for the data folder, so the path must be supplied here.
+///
+/// Priority:
+///   1. `--webview-data-dir <path>`  or  `--webview-data-dir=<path>`  (CLI arg)
+///   2. `TOKEN2_WEBVIEW_DATA_DIR`                                     (env var)
+///
+/// Point it at a location the elevated account can always write, e.g.
+///   token2-key-manager.exe --webview-data-dir C:\ProgramData\Token2\KeyManager\WebView2
+///
+/// When neither is set this returns None and Tauri keeps its default
+/// (`%LOCALAPPDATA%\com.token2.pivmanager`), so existing behaviour is unchanged.
+fn webview_data_dir_override() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--webview-data-dir" {
+            if let Some(val) = args.next() {
+                if !val.is_empty() {
+                    return Some(PathBuf::from(val));
+                }
+            }
+        } else if let Some(val) = arg.strip_prefix("--webview-data-dir=") {
+            if !val.is_empty() {
+                return Some(PathBuf::from(val));
+            }
+        }
+    }
+
+    match std::env::var("TOKEN2_WEBVIEW_DATA_DIR") {
+        Ok(val) if !val.is_empty() => Some(PathBuf::from(val)),
+        _ => None,
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            // Show the running version in the window title bar.
-            use tauri::Manager;
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.set_title(&format!("Token2 Key Manager {}", env!("CARGO_PKG_VERSION")));
+            // The main window is built here (not in tauri.conf.json) so we can set an
+            // explicit WebView2 data directory. Tauri respects a data_directory we set
+            // and otherwise forces %LOCALAPPDATA%\<identifier>, so leaving it unset keeps
+            // the previous default.
+            use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+            let title = format!("Token2 Key Manager {}", env!("CARGO_PKG_VERSION"));
+            let mut builder =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title(title)
+                    .inner_size(1080.0, 720.0)
+                    .min_inner_size(900.0, 600.0);
+
+            if let Some(dir) = webview_data_dir_override() {
+                // Best-effort: create it so WebView2 gets an existing, writable folder.
+                let _ = std::fs::create_dir_all(&dir);
+                builder = builder.data_directory(dir);
             }
+
+            builder.build()?;
             Ok(())
         })
         .manage(AppState(Mutex::new(Session::default())))
