@@ -128,6 +128,31 @@ the other CLI tools, the GUI, and all DLLs together.
 Options: `-Dev` runs the GUI in dev mode, `-FastDev` for a quick incremental GUI
 build, `-ToolOnly`, `-VcpkgPath D:\vcpkg`.
 
+
+### WebView2 data directory (Windows)
+ 
+The GUI renders through WebView2, which keeps its data under
+`%LOCALAPPDATA%\com.token2.pivmanager` of the account the process runs as. When
+the app is launched **elevated under a *different* admin account** (over-the-shoulder
+UAC, `runas /user:`, LAPS), WebView2 may fail to initialise that folder and shows
+*"We couldn't create the data directory"* (issue #66). The `WEBVIEW2_*` environment
+variables are ignored for elevated hosts and there is no registry override for the
+data folder, so the path has to be supplied to the app.
+ 
+Point the data folder at a location that account can write — with either a command-line
+argument or an environment variable:
+ 
+    token2-key-manager.exe --webview-data-dir C:\ProgramData\Token2\KeyManager\WebView2
+ 
+    set TOKEN2_WEBVIEW_DATA_DIR=C:\ProgramData\Token2\KeyManager\WebView2
+    token2-key-manager.exe
+ 
+`--webview-data-dir <path>` (or `--webview-data-dir=<path>`) takes precedence over
+`TOKEN2_WEBVIEW_DATA_DIR`. When neither is set, the default per-user location is used,
+so normal (non-elevated or same-account-elevated) launches are unaffected. The folder is
+created if it does not exist.
+
+
 ### Linux / macOS
 
 Built in CI (`.github/workflows/build-linux.yml`, `build-macos.yml`), runnable
