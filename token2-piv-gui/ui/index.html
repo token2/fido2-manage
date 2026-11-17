@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <title>Token2 Key Manager</title>
 <link rel="stylesheet" href="style.css">
+<script>
+/* Set the theme before first paint to avoid a flash. Reads the saved
+   preference ("auto" | "light" | "dark"); "auto" follows the OS setting. */
+(function(){try{var m=localStorage.getItem("t2-theme")||"auto";var dark=m==="dark"||(m==="auto"&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.setAttribute("data-theme",dark?"dark":"light");r.setAttribute("data-theme-mode",m);}catch(e){}})();
+</script>
 </head>
 <body>
 <header id="menubar">
@@ -52,6 +57,7 @@
       <div class="dropdown"><button data-mi="about">About Token2 Key Manager</button></div></div>
   </nav>
   <span id="menubar-status" class="hint"></span>
+  <button class="menu-btn theme-toggle" id="btn-theme" title="Theme: auto" aria-label="Toggle theme"><svg viewBox="0 0 24 24" style="width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></button>
 </header>
 <div id="app">
   <aside id="key-panel">
@@ -225,7 +231,7 @@
       <p>The slots on the key will appear here. Nothing is changed on the key until you choose an action.</p>
     </div>
     <div id="slots" hidden>
-      <div class="exp-note" style="background:#fff8e6;border:1px solid #f0d98a;color:#7a5d00;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+      <div class="exp-note" style="background:var(--note-bg);border:1px solid var(--note-border);color:var(--note-ink);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
         ⚠️ Certificate management is currently <b>experimental</b>. Some issues have been reported and are being worked on.
       </div>
       <h2>Slots</h2>
@@ -748,8 +754,8 @@
     <p class="hint"><span id="progress-elapsed">0 s</span> elapsed</p>
   </div>
 </div>
-<div id="pcsc-warn" hidden style="position:fixed;left:0;right:0;bottom:0;z-index:1000;background:#fff8e6;border-top:1px solid #f0d98a;color:#8a6d00;padding:10px 16px;font-size:13.5px;display:flex;gap:10px;align-items:center;box-shadow:0 -2px 8px rgba(0,0,0,.08)">
-  <svg viewBox="0 0 24 24" style="width:18px;height:18px;flex:none;fill:none;stroke:#b8860b;stroke-width:1.8"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+<div id="pcsc-warn" hidden style="position:fixed;left:0;right:0;bottom:0;z-index:1000;background:var(--note-bg);border-top:1px solid var(--note-border);color:var(--note-ink);padding:10px 16px;font-size:13.5px;display:flex;gap:10px;align-items:center;box-shadow:0 -2px 8px rgba(0,0,0,.08)">
+  <svg viewBox="0 0 24 24" style="width:18px;height:18px;flex:none;fill:none;stroke:var(--note-icon);stroke-width:1.8"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
   <span id="pcsc-warn-text" style="flex:1;white-space:pre-line"></span>
   <button id="pcsc-warn-x" class="ghost" style="flex:none">Dismiss</button>
 </div>

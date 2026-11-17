@@ -1,5 +1,18 @@
 == Using Attestation
 
+[WARNING]
+====
+This page is inherited from yubico-piv-tool and still describes the *Yubico*
+attestation chain and CA files. Token2 keys attest against Token2's own PIV CA,
+not Yubico's: the chain is leaf \<- slot F9 intermediate \<- *Token2 PIV CA*, and
+the device-property extensions use the Token2 arc `1.3.6.1.4.1.66563.3.x` (legacy
+`1.3.6.1.4.1.41482.3.x`). The Token2 PIV CA certificate is bundled with Token2 Key
+Manager (`token2-piv-gui/src-tauri/assets/token2-piv-ca.pem`). The `curl
+https://developers.yubico.com/...` steps below download Yubico CAs and will *not*
+verify a Token2 card. A Token2-specific verification procedure and a published root
+CA are tracked for a later release.
+====
+
 === Introduction
 
 This feature is only available in Token2 key 4.3 and above.

@@ -2,7 +2,13 @@
     $ token2-piv-tool -a delete-key -s <slot> -k
 
 === Description
-Deletes a key from the specified PIV slot. The function requires Token2 key 5.7 or higher.
+Deletes a key from the specified PIV slot.
+
+NOTE: Current Token2 applets do not implement this instruction (INS 0xF6); the
+device answers "not supported". A slot's key therefore cannot be erased — it can
+only be replaced by generating or importing a new key over it (`delete-certificate`
+removes the certificate but not the key). The "5.7 or higher" requirement was
+inherited from yubico-piv-tool and does not describe current Token2 hardware.
 
 NOTE: This actions deletes only the key, not the certificate. So if the slot already stores a certificate, it
 might still look populated even if the key is no longer there.

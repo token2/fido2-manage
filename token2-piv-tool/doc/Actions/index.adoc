@@ -28,5 +28,5 @@
 |unblock-pin                                                    | Sets a new the PIN code after it had been wrongly entered too many times
 |set-chuid                                                      | Sets/Changes the Card Holder Unique Identifier
 |set-ccc                                                        | Sets a new CCC
-|link:reset.adoc[reset]                                         | Resets the yubiKey's PIV interface
+|link:reset.adoc[reset]                                         | Resets the Token2 key's PIV interface
 |===================================

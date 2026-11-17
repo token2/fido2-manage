@@ -2,7 +2,11 @@
     $ token2-piv-tool -a move-key -s <slot> --to-slot <slot> -k
 
 === Description
-Moves a key from one PIV slot to another. The function requires Token2 key 5.7 or higher.
+Moves a key from one PIV slot to another.
+
+NOTE: Current Token2 applets do not implement this instruction (INS 0xF6); the
+device answers "not supported". The "5.7 or higher" requirement was inherited from
+yubico-piv-tool and does not describe current Token2 hardware.
 
 NOTE: This actions moves only the key, not the certificate. So if the slot already stores a certificate, it
 might still look populated even if the key is no longer there.
