@@ -5,13 +5,17 @@ passkeys, PINs, fingerprints, PIN policy and factory reset. This project is the
 ground-up rewrite of the original fido2-manage  a native, cross-platform
 binary (no Python/pexpect dependency), with the classic flag set preserved.
 
+> The previous C++/PowerShell implementation is preserved on the
+> [`legacy`](https://github.com/token2/fido2-manage/tree/legacy) branch.
+
 Alongside the rewritten CLI, the project now also ships **PIV command-line tools**
 and a **graphical front-end** (Token2 Key Manager) that adds PIV and OTP
 management on top of fido2-manage. The GUI is secondary — fido2-manage is the
 main deliverable.
 
-> The previous C++/PowerShell implementation is preserved on the
-> [`legacy`](https://github.com/token2/fido2-manage/tree/legacy) branch.
+> PIV is currently experimental. The primary focus of the tool at this stage is managing FIDO2 and OTP functionality, while PIV support is still under development.
+
+
 
 ## fido2-manage — usage
 
