@@ -2542,3 +2542,30 @@ document.addEventListener("keydown", (e) => {
 });
 
 
+
+/* ---------- theme (Auto / Light / Dark) ----------
+   Persisted in localStorage under "t2-theme". The pre-paint script in
+   index.html <head> applies the saved value before first render; this wires
+   the menubar toggle and keeps "auto" in sync with the OS setting. */
+(function () {
+  const root = document.documentElement;
+  const btn = document.getElementById("btn-theme");
+  const order = ["auto", "light", "dark"];
+  const label = { auto: "Theme: auto (system)", light: "Theme: light", dark: "Theme: dark" };
+  const mq = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : null;
+  const resolve = (mode) =>
+    mode === "dark" || (mode === "auto" && mq && mq.matches) ? "dark" : "light";
+  let mode = "auto";
+  try { mode = localStorage.getItem("t2-theme") || "auto"; } catch (e) {}
+  if (!order.includes(mode)) mode = "auto";
+  function apply(m) {
+    mode = m;
+    try { localStorage.setItem("t2-theme", m); } catch (e) {}
+    root.setAttribute("data-theme", resolve(m));
+    root.setAttribute("data-theme-mode", m);
+    if (btn) btn.title = label[m];
+  }
+  apply(mode);
+  if (btn) btn.addEventListener("click", () => apply(order[(order.indexOf(mode) + 1) % order.length]));
+  if (mq && mq.addEventListener) mq.addEventListener("change", () => { if (mode === "auto") apply("auto"); });
+})();

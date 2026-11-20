@@ -30,7 +30,7 @@ management key before start using it.]
 |-p, --password     | | X | Password for decryption of private key file, if omitted password will be asked for | |
 |-P, --pin         | | X | Pin/puk code for verification, if omitted pin/puk will be asked for | |
 |--pin-policy      | |   | Set pin policy applicable for the slot containing the key. | never, once, always, matchonce (applicable with bio verification), matchalways (applicable for with verification) | `always` on slot 9c and `once` on slots 9a, 9d and 9e
-|--touch-policy    | |   | Set touch policy applicable for the slot containing the key. | never, always, caches | never
+|--touch-policy    | |   | Set touch policy applicable for the slot containing the key. Requires firmware R3.4 or newer; earlier devices accept only `never` and reject `always`/`cached` with SW 6A81 (function not supported). | never, always, cached | never
 |===================================
 
 === Examples

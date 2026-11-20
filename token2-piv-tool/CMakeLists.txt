@@ -40,7 +40,7 @@ project (token2-piv-tool)
 
 set (token2_piv_tool_VERSION_MAJOR 2)
 set (token2_piv_tool_VERSION_MINOR 7)
-set (token2_piv_tool_VERSION_PATCH 3)
+set (token2_piv_tool_VERSION_PATCH 4)
 set (VERSION "${token2_piv_tool_VERSION_MAJOR}.${token2_piv_tool_VERSION_MINOR}.${token2_piv_tool_VERSION_PATCH}")
 set (SO_VERSION 2)
 

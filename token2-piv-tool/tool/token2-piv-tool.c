@@ -102,15 +102,20 @@ static enum file_mode data_file_mode(enum enum_format fmt, bool output) {
   return INPUT_TEXT;
 }
 
-static void print_version(t2piv_state *state, const char *output_file_name) {
-  char version[7] = {0};
+static bool print_version(t2piv_state *state, const char *output_file_name) {
+  /* Token2 applet versions can have a three-digit minor (e.g. "5.112.0"),
+     which needs 8 bytes; the old 7-byte buffer (inherited from yubico-piv-tool,
+     where "5.7.0" fits) made t2piv_get_version return T2PIV_SIZE_ERROR. */
+  char version[16] = {0};
+  bool ret = false;
   FILE *output_file = open_file(output_file_name, OUTPUT_TEXT);
   if(!output_file) {
-    return;
+    return false;
   }
 
   if(t2piv_get_version(state, version, sizeof(version)) == T2PIV_OK) {
     fprintf(output_file, "Firmware version %s found.\n", version);
+    ret = true;
   } else {
     fprintf(stderr, "Failed to retrieve firmware version.\n");
   }
@@ -118,6 +123,7 @@ static void print_version(t2piv_state *state, const char *output_file_name) {
   if(output_file != stdout) {
     fclose(output_file);
   }
+  return ret;
 }
 
 static bool sign_data(t2piv_state *state, const unsigned char *in, size_t len, unsigned char *out,
@@ -356,7 +362,17 @@ static bool generate_key(t2piv_state *state, enum enum_slot slot,
                                 &point,
                                 &point_len);
   if (res != T2PIV_OK) {
-    fprintf(stderr, "Key generation failed.\n");
+    if (res == T2PIV_NOT_SUPPORTED &&
+        (touch_policy == touch_policy_arg_always || touch_policy == touch_policy_arg_cached)) {
+      fprintf(stderr, "Key generation failed: touch policy '%s' is not supported by this device. "
+                      "PIV touch policy requires firmware R3.4 or newer (the card reported SW 6A81, "
+                      "function not supported).\n",
+              cmdline_parser_touch_policy_values[touch_policy]);
+    } else if (res == T2PIV_NOT_SUPPORTED) {
+      fprintf(stderr, "Key generation failed: the device reported this operation as not supported.\n");
+    } else {
+      fprintf(stderr, "Key generation failed: %s\n", t2piv_strerror(res));
+    }
     goto generate_out;
   }
 
@@ -1275,7 +1291,9 @@ static bool selfsign_certificate(t2piv_state *state, enum enum_key_format key_fo
         fprintf(stderr, "Failed extracting attestation.\n");
       }
 
-      attestation = create_ext(T2PIV_ATTESTATION_OID ".11", "t2piv attestation", "Token2 PIV X.509 Attestation", buf, buflen);
+      /* Use the same payload OID as request-certificate (".1"); the previous
+         ".11" here was inconsistent with that action. */
+      attestation = create_ext(T2PIV_ATTESTATION_OID ".1", "t2piv attestation", "Token2 PIV X.509 Attestation", buf, buflen);
       if (!attestation) {
         fprintf(stderr, "Failed creating attestation extension.\n");
       }
@@ -2797,7 +2815,9 @@ int main(int argc, char *argv[]) {
     }
     switch(action) {
       case action_arg_version:
-        print_version(state, args_info.output_arg);
+        if(print_version(state, args_info.output_arg) == false) {
+          ret = EXIT_FAILURE;
+        }
         break;
       case action_arg_generate:
         if(generate_key(state, args_info.slot_arg, args_info.algorithm_arg, args_info.output_arg, args_info.key_format_arg,
@@ -2865,7 +2885,14 @@ int main(int argc, char *argv[]) {
       case action_arg_importMINUS_key:
         if(import_key(state, args_info.key_format_arg, args_info.input_arg, args_info.slot_arg, password,
               args_info.pin_policy_arg, args_info.touch_policy_arg) == false) {
-          fprintf(stderr, "Unable to import private key\n");
+          if(args_info.touch_policy_arg == touch_policy_arg_always ||
+             args_info.touch_policy_arg == touch_policy_arg_cached) {
+            fprintf(stderr, "Unable to import private key. Note: touch policy '%s' requires firmware "
+                            "R3.4 or newer; older devices reject it (SW 6A81).\n",
+                    cmdline_parser_touch_policy_values[args_info.touch_policy_arg]);
+          } else {
+            fprintf(stderr, "Unable to import private key\n");
+          }
           ret = EXIT_FAILURE;
         } else {
           fprintf(stderr, "Successfully imported a new private key.\n");
@@ -3034,7 +3061,11 @@ int main(int argc, char *argv[]) {
         uint8_t to_slot = get_slot_hex((enum enum_slot) args_info.to_slot_arg);
         t2piv_rc res = t2piv_move_key(state, from_slot & 0xFF,  to_slot & 0xFF);
         if (res != T2PIV_OK) {
-          fprintf(stderr, "Failed to moved key: %s\n", t2piv_strerror(res));
+          if (res == T2PIV_NOT_SUPPORTED) {
+            fprintf(stderr, "Failed to move key: this applet does not implement move-key (INS 0xF6).\n");
+          } else {
+            fprintf(stderr, "Failed to move key: %s\n", t2piv_strerror(res));
+          }
           ret = EXIT_FAILURE;
         } else {
           fprintf(stderr, "Successfully moved key.\n");
@@ -3045,7 +3076,12 @@ int main(int argc, char *argv[]) {
         uint8_t slot = get_slot_hex(args_info.slot_arg);
         t2piv_rc res = t2piv_move_key(state, slot & 0xFF, 0xFF);
         if (res != T2PIV_OK) {
-          fprintf(stderr, "Failed to delete key: %s\n", t2piv_strerror(res));
+          if (res == T2PIV_NOT_SUPPORTED) {
+            fprintf(stderr, "Failed to delete key: this applet does not implement delete-key (INS 0xF6); "
+                            "a slot's key can only be overwritten by generating or importing over it.\n");
+          } else {
+            fprintf(stderr, "Failed to delete key: %s\n", t2piv_strerror(res));
+          }
           ret = EXIT_FAILURE;
         } else {
           fprintf(stderr, "Successfully deleted key.\n");
