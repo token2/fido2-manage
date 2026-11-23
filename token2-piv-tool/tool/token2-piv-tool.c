@@ -126,6 +126,44 @@ static bool print_version(t2piv_state *state, const char *output_file_name) {
   return ret;
 }
 
+/* Touch policy of the slot given with -s, read once right after connecting.
+   It is not read just before a private-key operation because an extra command
+   between VERIFY and the operation could invalidate a "PIN always" verification. */
+static int g_touch_slot = -1;
+static unsigned char g_touch_policy = T2PIV_TOUCHPOLICY_DEFAULT;
+
+static void load_touch_policy(t2piv_state *state, int slot) {
+  unsigned char md_data[T2PIV_OBJ_MAX_SIZE] = {0};
+  size_t md_len = sizeof(md_data);
+  t2piv_metadata md = {0};
+  g_touch_slot = slot;
+  g_touch_policy = T2PIV_TOUCHPOLICY_DEFAULT;
+  if(t2piv_get_metadata(state, (unsigned char)slot, md_data, &md_len) == T2PIV_OK &&
+     t2piv_util_parse_metadata(md_data, md_len, &md) == T2PIV_OK) {
+    g_touch_policy = md.touch_policy;
+  }
+}
+
+/* After generate/import the slot holds a new key; take the policy from the
+   command line instead of sending another command to the card. */
+static void note_touch_policy(int slot, enum enum_touch_policy touch_policy) {
+  g_touch_slot = slot;
+  if(touch_policy == touch_policy_arg_always) {
+    g_touch_policy = T2PIV_TOUCHPOLICY_ALWAYS;
+  } else if(touch_policy == touch_policy_arg_cached) {
+    g_touch_policy = T2PIV_TOUCHPOLICY_CACHED;
+  } else {
+    g_touch_policy = T2PIV_TOUCHPOLICY_DEFAULT;
+  }
+}
+
+static void touch_hint(int slot) {
+  if(slot == g_touch_slot &&
+     (g_touch_policy == T2PIV_TOUCHPOLICY_ALWAYS || g_touch_policy == T2PIV_TOUCHPOLICY_CACHED)) {
+    fprintf(stderr, "Touch the key when it blinks...\n");
+  }
+}
+
 static bool sign_data(t2piv_state *state, const unsigned char *in, size_t len, unsigned char *out,
     size_t *out_len, unsigned char algorithm, int key) {
 
@@ -157,6 +195,7 @@ static bool sign_data(t2piv_state *state, const unsigned char *in, size_t len, u
     len = padlen;
   }
   t2piv_rc rc;
+  touch_hint(key);
   if((rc = t2piv_sign_data(state, in, len, out, out_len, algorithm, key)) == T2PIV_OK) {
     return true;
   }
@@ -364,9 +403,8 @@ static bool generate_key(t2piv_state *state, enum enum_slot slot,
   if (res != T2PIV_OK) {
     if (res == T2PIV_NOT_SUPPORTED &&
         (touch_policy == touch_policy_arg_always || touch_policy == touch_policy_arg_cached)) {
-      fprintf(stderr, "Key generation failed: touch policy '%s' is not supported by this device. "
-                      "PIV touch policy requires firmware R3.4 or newer (the card reported SW 6A81, "
-                      "function not supported).\n",
+      fprintf(stderr, "Key generation failed: touch policy '%s' was rejected by this device "
+                      "(SW 6A81, function not supported). Use --touch-policy never, or omit the option.\n",
               cmdline_parser_touch_policy_values[touch_policy]);
     } else if (res == T2PIV_NOT_SUPPORTED) {
       fprintf(stderr, "Key generation failed: the device reported this operation as not supported.\n");
@@ -1965,6 +2003,21 @@ static void print_slot_info(t2piv_state *state, enum enum_slot slot, const EVP_M
     fprintf(output, "EMPTY\n");
   }
 
+  if (metadata_found && slot_md.algorithm != 0) {
+    static const char *const pin_names[] = {"default", "never", "once", "always"};
+    static const char *const touch_names[] = {"default", "never", "always", "cached"};
+    if (slot_md.pin_policy < 4) {
+      fprintf(output, "\tPIN Policy:\t\t%s\n", pin_names[slot_md.pin_policy]);
+    } else {
+      fprintf(output, "\tPIN Policy:\t\t0x%02x\n", slot_md.pin_policy);
+    }
+    if (slot_md.touch_policy < 4) {
+      fprintf(output, "\tTouch Policy:\t\t%s\n", touch_names[slot_md.touch_policy]);
+    } else {
+      fprintf(output, "\tTouch Policy:\t\t0x%02x\n", slot_md.touch_policy);
+    }
+  }
+
   if (cert_found) {
     unsigned int md_len = sizeof(data);
     const ASN1_TIME *not_before, *not_after;
@@ -2362,6 +2415,7 @@ static bool test_decipher(t2piv_state *state, enum enum_slot slot,
         fprintf(stderr, "Failed performing RSA encryption!\n");
         goto decipher_out;
       }
+      touch_hint(key);
       if(t2piv_decipher_data(state, data, (size_t)len, data, &len2, algorithm, key) != T2PIV_OK) {
         fprintf(stderr, "RSA decrypt failed!\n");
         goto decipher_out;
@@ -2416,6 +2470,7 @@ static bool test_decipher(t2piv_state *state, enum enum_slot slot,
         fprintf(stderr, "Failed to parse EC public key\n");
         goto decipher_out;
       }
+      touch_hint(key);
       if(t2piv_decipher_data(state, public_key, (key_len * 2) + 1, secret2, &len, algorithm, key) != T2PIV_OK) {
         fprintf(stderr, "Failed ECDH exchange!\n");
         goto decipher_out;
@@ -2712,6 +2767,10 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  if(args_info.slot_arg != slot__NULL) {
+    load_touch_policy(state, get_slot_hex(args_info.slot_arg));
+  }
+
   for(i = 0; i < args_info.action_given; i++) {
     action = *(args_info.action_arg + i);
     if(verbosity) {
@@ -2825,6 +2884,7 @@ int main(int argc, char *argv[]) {
           ret = EXIT_FAILURE;
         } else {
           fprintf(stderr, "Successfully generated a new private key.\n");
+          note_touch_policy(get_slot_hex(args_info.slot_arg), args_info.touch_policy_arg);
         }
         break;
       case action_arg_setMINUS_mgmMINUS_key:
@@ -2887,8 +2947,8 @@ int main(int argc, char *argv[]) {
               args_info.pin_policy_arg, args_info.touch_policy_arg) == false) {
           if(args_info.touch_policy_arg == touch_policy_arg_always ||
              args_info.touch_policy_arg == touch_policy_arg_cached) {
-            fprintf(stderr, "Unable to import private key. Note: touch policy '%s' requires firmware "
-                            "R3.4 or newer; older devices reject it (SW 6A81).\n",
+            fprintf(stderr, "Unable to import private key. Note: if the input file and password are correct, "
+                            "the device may have rejected touch policy '%s' (SW 6A81); retry with -v 2 to check.\n",
                     cmdline_parser_touch_policy_values[args_info.touch_policy_arg]);
           } else {
             fprintf(stderr, "Unable to import private key\n");
@@ -2896,6 +2956,7 @@ int main(int argc, char *argv[]) {
           ret = EXIT_FAILURE;
         } else {
           fprintf(stderr, "Successfully imported a new private key.\n");
+          note_touch_policy(get_slot_hex(args_info.slot_arg), args_info.touch_policy_arg);
         }
         break;
       case action_arg_importMINUS_certificate:

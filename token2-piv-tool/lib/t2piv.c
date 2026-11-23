@@ -1216,6 +1216,9 @@ t2piv_rc t2piv_translate_sw_ex(const char *whence, int sw) {
     case SW_ERR_COMMAND_NOT_ALLOWED:
       DBG("%s: SW_ERR_COMMAND_NOT_ALLOWED", whence);
       return T2PIV_NOT_SUPPORTED;
+    case SW_ERR_FUNC_NOT_SUPPORTED:
+      DBG("%s: SW_ERR_FUNC_NOT_SUPPORTED", whence);
+      return T2PIV_NOT_SUPPORTED;
     case SW_ERR_NO_SPACE:
       DBG("%s: SW_ERR_NO_SPACE", whence);
       return T2PIV_SIZE_ERROR;

@@ -564,7 +564,9 @@ $$("dialog form[data-cmd]").forEach((form) => {
                 slot: dialogCtx.slot, algorithm: f.algorithm, pinPolicy: f.pin_policy, touchPolicy: f.touch_policy, pin: f.pin,
               });
               if (f.selfsign && opt && opt.dataset.canSign) {
-                progress.show("Creating self-signed certificate (signing on the device)…");
+                progress.show(f.touch_policy === "always" || f.touch_policy === "cached"
+                  ? "Creating self-signed certificate: touch the key when it blinks…"
+                  : "Creating self-signed certificate (signing on the device)…");
                 await invoke("self_sign", { slot: dialogCtx.slot, commonName: f.cn, days: Number(f.days), pin: f.pin });
               }
             } finally { progress.hide(); }
@@ -603,7 +605,16 @@ $$("dialog form[data-cmd]").forEach((form) => {
           }
           case "self_sign": {
             form.closest("dialog").close("ok");
-            progress.show(fpUse ? "Touch the fingerprint sensor to authorise signing…" : "Creating self-signed certificate (signing on the device)…");
+            // fpUse was referenced here without ever being defined, which made this action
+            // fail with "fpUse is not defined". Fingerprint is used when the PIV fingerprint
+            // binding is on and no PIN was typed.
+            const fpToggle = $("#piv-fp-toggle");
+            const fpUse = !!(fpToggle && fpToggle.checked) && !f.pin;
+            const sm = slots.find((x) => x.slot === dialogCtx.slot);
+            const needTouch = !!(sm && sm.meta && (sm.meta.touch_policy === 2 || sm.meta.touch_policy === 3));
+            progress.show(fpUse ? "Touch the fingerprint sensor to authorise signing…"
+              : needTouch ? "Creating self-signed certificate: touch the key when it blinks…"
+              : "Creating self-signed certificate (signing on the device)…");
             try {
               await invoke("self_sign", { slot: dialogCtx.slot, commonName: f.common_name, days: Number(f.days), pin: f.pin });
             } finally { progress.hide(); }

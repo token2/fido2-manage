@@ -766,6 +766,7 @@ extern "C"
 #define SW_ERR_CONDITIONS_OF_USE 0x6985 // CONDITIONS_NOT_SATISFIED
 #define SW_ERR_INCORRECT_PARAM 0x6a80
 #define SW_ERR_FILE_NOT_FOUND 0x6a82
+#define SW_ERR_FUNC_NOT_SUPPORTED 0x6a81 // FUNCTION_NOT_SUPPORTED (e.g. touch policy before R3.4)
 #define SW_ERR_REFERENCE_NOT_FOUND 0x6a88
 /* vendor-specific status word */
 #define SW_ERR_INCORRECT_SLOT 0x6b00 // WRONG_PARAMETERS_P1P2
@@ -801,7 +802,10 @@ extern "C"
 #define T2PIV_PINPOLICY_MATCH_ONCE 4
 #define T2PIV_PINPOLICY_MATCH_ALWAYS 5
 
-#define T2PIV_TOUCHPOLICY_TAG 0xab
+/* Token2 applets take the touch policy in tag 0xB0 (seen in the R3.4 companion
+   app's GENERATE: ... aa 01 03 b0 01 02). The Yubico tag 0xAB is rejected with
+   SW 6A81 on both R3.3 and R3.4. */
+#define T2PIV_TOUCHPOLICY_TAG 0xb0
 #define T2PIV_TOUCHPOLICY_DEFAULT 0
 #define T2PIV_TOUCHPOLICY_NEVER 1
 #define T2PIV_TOUCHPOLICY_ALWAYS 2
