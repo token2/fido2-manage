@@ -1,6 +1,6 @@
 [package]
 name = "token2-piv-gui"
-version = "0.2.3"
+version = "0.2.4"
 description = "Token2 Key Manager"
 authors = ["Token2"]
 edition = "2021"

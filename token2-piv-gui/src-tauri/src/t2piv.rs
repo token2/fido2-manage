@@ -173,6 +173,12 @@ extern "C" {
     ) -> t2piv_rc;
     pub fn t2piv_util_free(state: *mut t2piv_state, data: *mut c_void) -> t2piv_rc;
     pub fn t2piv_util_reset(state: *mut t2piv_state) -> t2piv_rc;
+    // CHUID (16-byte GUID) and CCC: pass a null pointer to generate a random one.
+    // Needed so the Windows PIV minidriver can enumerate key containers.
+    pub fn t2piv_util_get_cardid(state: *mut t2piv_state, cardid: *mut u8) -> t2piv_rc;
+    pub fn t2piv_util_set_cardid(state: *mut t2piv_state, cardid: *const u8) -> t2piv_rc;
+    pub fn t2piv_util_get_cccid(state: *mut t2piv_state, ccc: *mut u8) -> t2piv_rc;
+    pub fn t2piv_util_set_cccid(state: *mut t2piv_state, ccc: *const u8) -> t2piv_rc;
     pub fn t2piv_util_get_config(state: *mut t2piv_state, config: *mut t2piv_config) -> t2piv_rc;
     pub fn t2piv_sign_data(
         state: *mut t2piv_state,

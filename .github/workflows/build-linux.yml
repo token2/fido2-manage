@@ -181,7 +181,7 @@ jobs:
       - name: Build .deb
         run: |
           set -e
-          VER=0.2.3
+          VER=0.2.4
           PKG="$RUNNER_TEMP/deb/token2-key-manager"
           rm -rf "$PKG"; mkdir -p "$PKG/DEBIAN" "$PKG/opt/token2-key-manager" "$PKG/usr/bin" \
             "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/256x256/apps"
@@ -297,7 +297,7 @@ jobs:
       - name: Build .rpm
         run: |
           set -e
-          VER=0.2.3
+          VER=0.2.4
           # Reuse the .deb staging tree (opt/ + usr/) — it persists on disk between
           # steps. fpm packages the same payload as an RPM for Fedora/RHEL/openSUSE.
           PKG="$RUNNER_TEMP/deb/token2-key-manager"

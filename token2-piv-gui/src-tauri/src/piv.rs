@@ -529,6 +529,25 @@ impl Piv {
         rc_to_result(unsafe { t2piv_util_reset(self.state) })
     }
 
+    /// Ensure the card carries a CHUID and CCC, writing a fresh one only when
+    /// missing (so the card GUID stays stable across key generations). Without
+    /// these objects the Windows PIV minidriver cannot enumerate key containers
+    /// and reports "the keys cannot be opened" even though the keys are present.
+    /// The management key must already be authenticated on `self`.
+    pub fn ensure_card_identity(&self) -> Result<()> {
+        unsafe {
+            let mut chuid = [0u8; 16];
+            if rc_to_result(t2piv_util_get_cardid(self.state, chuid.as_mut_ptr())).is_err() {
+                rc_to_result(t2piv_util_set_cardid(self.state, ptr::null()))?;
+            }
+            let mut ccc = [0u8; 14];
+            if rc_to_result(t2piv_util_get_cccid(self.state, ccc.as_mut_ptr())).is_err() {
+                rc_to_result(t2piv_util_set_cccid(self.state, ptr::null()))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Returns the raw public key: (modulus, exponent) for RSA, point for EC/Ed/X.
     pub fn generate_key(&self, slot: u8, algorithm: u8, pin_policy: u8, touch_policy: u8) -> Result<GeneratedKey> {
         let (mut m, mut ml, mut e, mut el, mut p, mut pl): (*mut u8, usize, *mut u8, usize, *mut u8, usize) =
