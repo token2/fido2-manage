@@ -142,7 +142,19 @@ impl RemoteKeyPair for TokenSigner {
             ALGO_ED25519 => msg.to_vec(),
             _ => return Err(rcgen::Error::RemoteKeyError),
         };
-        piv.sign_raw(self.slot, self.algorithm, &input).map_err(|_| rcgen::Error::RemoteKeyError)
+        let mut sig = piv.sign_raw(self.slot, self.algorithm, &input).map_err(|_| rcgen::Error::RemoteKeyError)?;
+        // For RSA the X.509 signatureValue must be exactly modulus_len bytes. If the
+        // card returns the result with leading zero bytes stripped (a short big-endian
+        // integer), left-pad it — otherwise strict verifiers (e.g. Windows CryptoAPI)
+        // reject the certificate with TRUST_E_CERT_SIGNATURE.
+        if matches!(self.algorithm, ALGO_RSA1024 | ALGO_RSA2048 | ALGO_RSA3072 | ALGO_RSA4096)
+            && sig.len() < self.modulus_len
+        {
+            let mut padded = vec![0u8; self.modulus_len - sig.len()];
+            padded.extend_from_slice(&sig);
+            sig = padded;
+        }
+        Ok(sig)
     }
     fn algorithm(&self) -> &'static SignatureAlgorithm {
         match self.algorithm {
@@ -302,4 +314,3 @@ pub fn verify_attestation(leaf_der: &[u8], f9_der: &[u8], slot_spki: Option<&[u8
     r.warnings = r.checks.iter().filter(|(_, lvl, _)| lvl == "warn").count();
     Ok(r)
 }
-
