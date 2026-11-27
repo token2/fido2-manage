@@ -536,12 +536,18 @@ impl Piv {
     /// The management key must already be authenticated on `self`.
     pub fn ensure_card_identity(&self) -> Result<()> {
         unsafe {
+            // Treat a missing OR all-zero object as "not provisioned": get_cardid can
+            // return success with an empty buffer, which would otherwise skip the write.
             let mut chuid = [0u8; 16];
-            if rc_to_result(t2piv_util_get_cardid(self.state, chuid.as_mut_ptr())).is_err() {
+            let have_chuid = rc_to_result(t2piv_util_get_cardid(self.state, chuid.as_mut_ptr())).is_ok()
+                && chuid.iter().any(|&b| b != 0);
+            if !have_chuid {
                 rc_to_result(t2piv_util_set_cardid(self.state, ptr::null()))?;
             }
             let mut ccc = [0u8; 14];
-            if rc_to_result(t2piv_util_get_cccid(self.state, ccc.as_mut_ptr())).is_err() {
+            let have_ccc = rc_to_result(t2piv_util_get_cccid(self.state, ccc.as_mut_ptr())).is_ok()
+                && ccc.iter().any(|&b| b != 0);
+            if !have_ccc {
                 rc_to_result(t2piv_util_set_cccid(self.state, ptr::null()))?;
             }
         }
@@ -637,4 +643,3 @@ pub struct GeneratedKey {
     pub exponent: Vec<u8>,
     pub point: Vec<u8>,
 }
-
