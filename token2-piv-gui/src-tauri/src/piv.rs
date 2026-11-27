@@ -330,7 +330,12 @@ impl Piv {
 
     /// Whether the biometric-PIV reference exists at all (key supports the feature).
     pub fn fingerprint_binding_supported(&self) -> bool {
-        self.fingerprint_retries().is_some()
+        // Only Bio keys have a fingerprint sensor. The 0x96 biometric reference also
+        // answers on non-bio PIN+ PIV+ keys, so VERIFY 00 20 00 96 alone is not a
+        // reliable discriminator (it would offer "Fingerprint for PIV login" on a key
+        // with no sensor). Gate on the model's bio capability, derived from the serial.
+        let is_bio = crate::t2model::from_serial(&self.serial_full()).map(|m| m.bio).unwrap_or(false);
+        is_bio && self.fingerprint_retries().is_some()
     }
 
     /// Authorise a PIV operation: if `pin` is empty and biometric is available,
