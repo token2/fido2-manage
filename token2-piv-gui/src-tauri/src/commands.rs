@@ -63,6 +63,31 @@ fn with_piv_write<T>(state: &State<AppState>, pin: &str, f: impl FnOnce(&Piv) ->
     out
 }
 
+/// Like `with_piv_write`, but also hands the authenticated management key to the
+/// closure so it can re-assert management auth later in the SAME session (some
+/// operations, e.g. key generation, clear the management security status on this
+/// applet). Used so provisioning runs in the same session as generate/import
+/// rather than a second session that would have to re-verify the PIN.
+fn with_piv_write_key<T>(state: &State<AppState>, pin: &str, f: impl FnOnce(&Piv, &[u8]) -> R<T>) -> R<T> {
+    let mut s = state.0.lock().map_err(|_| "state lock poisoned")?;
+    let reader = s.reader.clone();
+    let cached = s.admin_key.clone();
+    let piv = s.piv.as_ref().ok_or("No key connected")?;
+    if !reader.is_empty() { let _ = piv.connect(&reader); }
+    piv.verify_pin(pin)?;
+    let mut good: Option<Vec<u8>> = None;
+    let mut cands: Vec<Vec<u8>> = Vec::new();
+    if let Some(k) = &cached { cands.push(k.clone()); }
+    cands.push(hex::decode(DEFAULT_ADMIN_KEY).unwrap());
+    for k in &cands { if piv.authenticate(k).is_ok() { good = Some(k.clone()); break; } }
+    let Some(key) = good else {
+        return Err("could not authenticate the management key (is the PIV PIN correct?)".into());
+    };
+    let out = f(piv, &key);
+    s.admin_key = Some(key);
+    out
+}
+
 #[derive(Serialize)]
 pub struct SlotView {
     pub slot: u8,
@@ -342,18 +367,19 @@ pub async fn generate_key(
     pin: String,
 ) -> R<Generated> {
     let algo = algo_from_name(&algorithm).ok_or("unknown algorithm")?;
-    let out = with_piv_write(&state, &pin, |p| {
+    let out = with_piv_write_key(&state, &pin, |p, admin| {
         let k = p.generate_key(slot, algo, policy(&pin_policy, false), policy(&touch_policy, true))?;
         let public_key_pem = certs::spki_der(&k).map(|d| certs::to_pem("PUBLIC KEY", &d)).unwrap_or_default();
+        // Provision the Windows PIV+ minidriver container objects (5FFF04 map + 5FFF03
+        // key-info) so the key is usable on Windows - reversed from the Companion app,
+        // which writes these, not the standard CHUID/CCC. Done in the SAME session as
+        // generate (re-asserting management auth inside provision_container), because a
+        // second session would re-verify the PIN, which this applet rejects right after
+        // a key generation. The error is surfaced, not swallowed.
+        p.provision_container(slot, algo, admin)
+            .map_err(|e| format!("The key was created, but writing the Windows minidriver container objects failed: {e}. The key itself is fine; Windows may not open it until this succeeds."))?;
         Ok(Generated { algorithm: algorithm.clone(), public_key_pem })
     })?;
-    // Provision the Windows PIV+ minidriver container objects (5FFF04 map + 5FFF03
-    // key-info) so the key is usable on Windows - reversed from the Companion app, which
-    // writes these, not the standard CHUID/CCC. Done in its own authenticated session
-    // (not inside the generate call) because the management-key auth does not reliably
-    // survive key generation on this applet. The error is surfaced, not swallowed.
-    with_piv_write(&state, &pin, |p| p.provision_container(slot, algo))
-        .map_err(|e| format!("The key was created, but writing the Windows minidriver container objects failed: {e}. The key itself is fine; Windows may not open it until this succeeds."))?;
     Ok(out)
 }
 
@@ -489,16 +515,17 @@ pub async fn import_pfx(
     // refusing the import, not a wrong PKCS#12 password
     Piv::probe_key_blob(&bytes, &password).map_err(|e| format!("file error: {e}"))?;
     // key import is administrative on the PIV applet — authenticate the Admin PIN first
-    let (algo, cert_written) = with_piv_write(&state, &pin, |p| {
-        p.import_key_blob(slot, &bytes, &password, policy(&pin_policy, false), policy(&touch_policy, true), true)
+    let (algo, cert_written) = with_piv_write_key(&state, &pin, |p, admin| {
+        let r = p.import_key_blob(slot, &bytes, &password, policy(&pin_policy, false), policy(&touch_policy, true), true)
             .map_err(|e| if e.contains("Wrong password") || e.contains("authentication") {
                 "the device refused the key import (Admin PIN not accepted, or the slot is locked)".to_string()
-            } else { e })
+            } else { e })?;
+        // Provision the Windows minidriver container objects in the SAME session
+        // (see generate_key).
+        p.provision_container(slot, r.0, admin)
+            .map_err(|e| format!("The key was imported, but writing the Windows minidriver container objects failed: {e}."))?;
+        Ok(r)
     })?;
-    // Provision the Windows minidriver container objects in a fresh authenticated
-    // session (see generate_key).
-    with_piv_write(&state, &pin, |p| p.provision_container(slot, algo))
-        .map_err(|e| format!("The key was imported, but writing the Windows minidriver container objects failed: {e}."))?;
     Ok(Imported {
         algorithm: crate::piv::algo_name(algo).to_string(),
         cert_written,
