@@ -344,6 +344,8 @@ pub async fn generate_key(
     let algo = algo_from_name(&algorithm).ok_or("unknown algorithm")?;
     with_piv_write(&state, &pin, |p| {
         let k = p.generate_key(slot, algo, policy(&pin_policy, false), policy(&touch_policy, true))?;
+        // Provision CHUID/CCC so the key is usable by the Windows PIV minidriver.
+        let _ = p.ensure_card_identity();
         let public_key_pem = certs::spki_der(&k).map(|d| certs::to_pem("PUBLIC KEY", &d)).unwrap_or_default();
         Ok(Generated { algorithm: algorithm.clone(), public_key_pem })
     })}
@@ -481,10 +483,13 @@ pub async fn import_pfx(
     Piv::probe_key_blob(&bytes, &password).map_err(|e| format!("file error: {e}"))?;
     // key import is administrative on the PIV applet — authenticate the Admin PIN first
     let (algo, cert_written) = with_piv_write(&state, &pin, |p| {
-        p.import_key_blob(slot, &bytes, &password, policy(&pin_policy, false), policy(&touch_policy, true), true)
+        let r = p.import_key_blob(slot, &bytes, &password, policy(&pin_policy, false), policy(&touch_policy, true), true)
             .map_err(|e| if e.contains("Wrong password") || e.contains("authentication") {
                 "the device refused the key import (Admin PIN not accepted, or the slot is locked)".to_string()
-            } else { e })
+            } else { e })?;
+        // Provision CHUID/CCC so the imported key is usable by the Windows PIV minidriver.
+        let _ = p.ensure_card_identity();
+        Ok(r)
     })?;
     Ok(Imported {
         algorithm: crate::piv::algo_name(algo).to_string(),
@@ -512,29 +517,39 @@ pub fn delete_cert(state: State<AppState>, slot: u8, pin: String) -> R<()> {
 #[tauri::command]
 pub fn delete_slot(state: State<AppState>, slot: u8, pin: String, cert: bool, key: bool) -> R<()> {
     if !cert && !key { return Err("nothing selected to delete".into()); }
-    // Key delete (vendor 00 EE) needs only the user PIN; cert delete (PUT DATA)
-    // needs the management key. Do the PIN-gated key delete first, then the
-    // mgmt-key-gated cert delete, in one session.
+    // BOTH the private-key delete (vendor 00 FE) and the certificate delete
+    // (PUT DATA) are gated on the management key. Authenticate it up front — the
+    // same way the generate/import path (with_piv_write) does — otherwise the
+    // applet refuses the key delete with SW 6982 and leaves the key on the card
+    // while the cert/metadata objects (which are PIN-writable) still get cleared,
+    // so Key Manager shows "No key" while the key is actually still present.
     let mut s2 = state.0.lock().map_err(|_| "state lock poisoned")?;
     let reader = s2.reader.clone();
     let cached = s2.admin_key.clone();
     let piv = s2.piv.as_ref().ok_or("No key connected")?;
     if !reader.is_empty() { let _ = piv.connect(&reader); }   // SELECT PIV
-    piv.verify_pin(&pin)?;                                      // user PIN
-    // Private-key delete is PIN-only on Token2 (its vendor sequence). Do it first.
-    if key {
-        piv.delete_key(slot)?;   // verifies internally that the key is gone
-        let still = piv.slot_metadata(slot).ok().map(|m| !m.algorithm_name.is_empty()).unwrap_or(false);
-        if still { return Err("the private key is still present after the delete".into()); }
+    piv.verify_pin(&pin)?;                                      // user PIN (unlocks mgmt key)
+
+    // authenticate the management key (cached, else factory default)
+    let mut good: Option<Vec<u8>> = None;
+    let mut cands: Vec<Vec<u8>> = Vec::new();
+    if let Some(k) = &cached { cands.push(k.clone()); }
+    cands.push(hex::decode(DEFAULT_ADMIN_KEY).unwrap());
+    for k in &cands { if piv.authenticate(k).is_ok() { good = Some(k.clone()); break; } }
+    if good.is_none() {
+        return Err("could not authenticate the management key (needed to delete). Is the Admin PIN / management key correct?".into());
     }
-    // Certificate delete (PUT DATA) is gated on the management key.
-    let mut good = None;
+
+    // Private-key delete first. delete_key sends 00 FE and returns an error
+    // (leaving the key) if the applet refuses it, so a failure here is surfaced.
+    if key {
+        piv.delete_key(slot)?;
+        let still = piv.slot_metadata(slot).ok().map(|m| !m.algorithm_name.is_empty()).unwrap_or(false);
+        if still {
+            return Err("the private key is still present after the delete — overwrite the slot with a new key, or reset the applet, to remove it".into());
+        }
+    }
     if cert {
-        let mut cands: Vec<Vec<u8>> = Vec::new();
-        if let Some(k) = &cached { cands.push(k.clone()); }
-        cands.push(hex::decode(DEFAULT_ADMIN_KEY).unwrap());
-        for k in &cands { if piv.authenticate(k).is_ok() { good = Some(k.clone()); break; } }
-        if good.is_none() { return Err("could not authenticate to delete the certificate (is the PIV PIN correct?)".into()); }
         piv.delete_cert(slot)?;
     }
     let _ = piv;
