@@ -342,13 +342,20 @@ pub async fn generate_key(
     pin: String,
 ) -> R<Generated> {
     let algo = algo_from_name(&algorithm).ok_or("unknown algorithm")?;
-    with_piv_write(&state, &pin, |p| {
+    let out = with_piv_write(&state, &pin, |p| {
         let k = p.generate_key(slot, algo, policy(&pin_policy, false), policy(&touch_policy, true))?;
-        // Provision CHUID/CCC so the key is usable by the Windows PIV minidriver.
-        let _ = p.ensure_card_identity();
         let public_key_pem = certs::spki_der(&k).map(|d| certs::to_pem("PUBLIC KEY", &d)).unwrap_or_default();
         Ok(Generated { algorithm: algorithm.clone(), public_key_pem })
-    })}
+    })?;
+    // Provision CHUID/CCC so the key is usable by the Windows PIV minidriver. Done in
+    // its own authenticated session (not inside the generate call) because the
+    // management-key auth does not reliably survive the key generation on this applet,
+    // which left the CHUID unwritten. This mirrors the CLI's authenticate -> set-chuid.
+    // The error is surfaced (not swallowed) so a failure is visible rather than silent.
+    with_piv_write(&state, &pin, |p| p.ensure_card_identity())
+        .map_err(|e| format!("The key was created, but writing the Windows CHUID/CCC failed: {e}. The key itself is fine; Windows may not open it until this succeeds."))?;
+    Ok(out)
+}
 
 
 /// Public key TLV from GET METADATA -> GeneratedKey shape.
@@ -483,14 +490,14 @@ pub async fn import_pfx(
     Piv::probe_key_blob(&bytes, &password).map_err(|e| format!("file error: {e}"))?;
     // key import is administrative on the PIV applet — authenticate the Admin PIN first
     let (algo, cert_written) = with_piv_write(&state, &pin, |p| {
-        let r = p.import_key_blob(slot, &bytes, &password, policy(&pin_policy, false), policy(&touch_policy, true), true)
+        p.import_key_blob(slot, &bytes, &password, policy(&pin_policy, false), policy(&touch_policy, true), true)
             .map_err(|e| if e.contains("Wrong password") || e.contains("authentication") {
                 "the device refused the key import (Admin PIN not accepted, or the slot is locked)".to_string()
-            } else { e })?;
-        // Provision CHUID/CCC so the imported key is usable by the Windows PIV minidriver.
-        let _ = p.ensure_card_identity();
-        Ok(r)
+            } else { e })
     })?;
+    // Provision CHUID/CCC in a fresh authenticated session (see generate_key).
+    with_piv_write(&state, &pin, |p| p.ensure_card_identity())
+        .map_err(|e| format!("The key was imported, but writing the Windows CHUID/CCC failed: {e}."))?;
     Ok(Imported {
         algorithm: crate::piv::algo_name(algo).to_string(),
         cert_written,
