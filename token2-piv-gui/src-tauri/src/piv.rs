@@ -546,7 +546,15 @@ impl Piv {
     /// NOTE: only RSA-2048 is capture-verified. Other algorithms use the same record
     /// layout with their PIV algorithm code and key size; that path still needs
     /// hardware validation, which is why PIV stays experimental.
-    pub fn provision_container(&self, slot: u8, algorithm: u8) -> Result<()> {
+    pub fn provision_container(&self, slot: u8, algorithm: u8, admin_key: &[u8]) -> Result<()> {
+        // Re-assert management auth: generating/importing a key clears the management
+        // security status on this applet, and the 5FFFxx PUT DATA writes need it. Runs
+        // in the same session as generate/import (not a second session, which would
+        // re-verify the PIN and fail on this applet right after a key operation).
+        // Best-effort: if auth was NOT cleared, re-authenticating can itself report
+        // "not supported" (already authenticated) - harmless, so ignore it and let the
+        // PUT DATA writes below surface any genuine security-status error (SW 6982).
+        let _ = self.authenticate(admin_key);
         // Keep the standard CHUID/CCC as well - harmless, and generic PIV middleware
         // (OpenSC and friends) still reads them even though the minidriver does not.
         let _ = self.ensure_card_identity();
