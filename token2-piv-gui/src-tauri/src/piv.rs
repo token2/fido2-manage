@@ -24,6 +24,17 @@ fn rc_to_result(rc: t2piv_rc) -> Result<()> {
     }
 }
 
+/// A fresh random Windows container GUID, lowercase 8-4-4-4-12, for the 5FFF04
+/// CONTAINER_MAP_RECORD.wszGuid field (the minidriver keys containers by this).
+fn fresh_container_guid() -> String {
+    let b: [u8; 16] = rand::random();
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
+    )
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct KeyInfo {
     pub reader: String,
@@ -514,6 +525,153 @@ impl Piv {
         put.extend_from_slice(&value);
         let mut o = vec![0u8; 16];
         let _ = send(&[0x00,0xdb,0x3f,0xff], &put, &mut o);
+        Ok(())
+    }
+
+    /// Provision the Windows PIV+ minidriver container objects for a key that was
+    /// just generated or imported into `slot`. Reproduced from a USBPcap of the
+    /// Companion app (slot 9c, RSA-2048): the Token2 PIV+ minidriver does NOT read
+    /// the standard CHUID (5FC102) / CCC (5FC107). It enumerates containers from two
+    /// proprietary objects, so without them a key is present but "cannot be opened"
+    /// on Windows (certutil -SCInfo shows `(null)`):
+    ///   5FFF04  - container map: an array of 112-byte Windows CONTAINER_MAP_RECORDs
+    ///   5FFF03  - per-slot key-info object
+    /// We read-modify-write 5FFF04 (so any containers the Companion already wrote stay
+    /// intact), then write 5FFF03, mirroring the Companion byte-for-byte. The three
+    /// stale per-slot metadata objects (5FFF10/28/50 + container-index) are cleared
+    /// first, exactly as the Companion does before writing the new entry.
+    ///
+    /// The management key must already be authenticated on `self`.
+    ///
+    /// NOTE: only RSA-2048 is capture-verified. Other algorithms use the same record
+    /// layout with their PIV algorithm code and key size; that path still needs
+    /// hardware validation, which is why PIV stays experimental.
+    pub fn provision_container(&self, slot: u8, algorithm: u8) -> Result<()> {
+        // Keep the standard CHUID/CCC as well - harmless, and generic PIV middleware
+        // (OpenSC and friends) still reads them even though the minidriver does not.
+        let _ = self.ensure_card_identity();
+
+        let ci: u8 = match slot {          // container index (creation order)
+            0x9a => 0, 0x9c => 1, 0x9d => 2, 0x9e => 3,
+            0x82..=0x95 => 4 + (slot - 0x82),
+            _ => return Err(format!("minidriver provisioning not supported for slot {slot:02x}")),
+        };
+        let key_bits: u16 = match algorithm {
+            ALGO_RSA1024 => 1024, ALGO_RSA2048 => 2048,
+            ALGO_RSA3072 => 3072, ALGO_RSA4096 => 4096,
+            ALGO_ECCP384 => 384,
+            ALGO_ECCP256 | ALGO_ED25519 | ALGO_X25519 => 256,
+            _ => 2048,
+        };
+
+        let send = |templ: &[u8; 4], data: &[u8]| -> (u16, Vec<u8>) {
+            let mut out = vec![0u8; 4096];
+            let mut ol: std::os::raw::c_ulong = out.len() as _;
+            let mut sw: c_int = 0;
+            let _ = unsafe {
+                t2piv_transfer_data(self.state, templ.as_ptr(),
+                    if data.is_empty() { ptr::null() } else { data.as_ptr() },
+                    data.len() as _, out.as_mut_ptr(), &mut ol, &mut sw)
+            };
+            let n = (ol as usize).min(out.len());
+            out.truncate(n);
+            (sw as u16, out)
+        };
+        let put = |obj: [u8; 3], val: &[u8]| -> u16 {
+            let mut d = vec![0x5cu8, 0x03, obj[0], obj[1], obj[2]];
+            d.extend_from_slice(val);
+            send(&[0x00, 0xdb, 0x3f, 0xff], &d).0
+        };
+
+        // 1) Clear the three stale per-slot metadata objects for this container index.
+        let _ = put([0x5f, 0xff, 0x10 + ci], &[0x53, 0x00]);
+        let _ = put([0x5f, 0xff, 0x28 + ci], &[0x53, 0x00]);
+        let _ = put([0x5f, 0xff, 0x50 + ci], &[0x53, 0x00]);
+
+        // 2) Read the current container map (5FFF04), if any, down to its record array.
+        const REC: usize = 112;
+        let mut records: Vec<u8> = Vec::new();
+        let (sw, buf) = send(&[0x00, 0xcb, 0x3f, 0xff], &[0x5c, 0x03, 0x5f, 0xff, 0x04, 0x00]);
+        if sw == 0x9000 || sw >> 8 == 0x61 {
+            if let Some(t) = buf.iter().position(|&b| b == 0x53) {
+                let after = &buf[t + 1..];
+                let voff = match after.first() {
+                    Some(&0x82) => t + 4,
+                    Some(&0x81) => t + 3,
+                    _ => t + 2,
+                };
+                let value = buf.get(voff..).unwrap_or(&[]);
+                // value is wrapped once more: 81 82 <len16> <records...>
+                records = if value.first() == Some(&0x81) && value.get(1) == Some(&0x82) {
+                    value.get(4..).unwrap_or(&[]).to_vec()
+                } else {
+                    value.to_vec()
+                };
+            }
+        }
+        let keep = (records.len() / REC) * REC; // only whole records
+        records.truncate(keep);
+
+        // 3) Assign a key index: reuse this slot's existing entry index, else max+1.
+        //    Trailer layout at offset 100: <slot> <algo> <sizecode> 00 <keyidx> c1 5f ...
+        let mut key_idx: u8 = 1;
+        let mut existing: Option<usize> = None;
+        let mut max_idx: u8 = 0;
+        let mut off = 0usize;
+        while off + REC <= records.len() {
+            let rec = &records[off..off + REC];
+            if rec[104] > max_idx { max_idx = rec[104]; }
+            if rec[86] == slot { existing = Some(off); key_idx = rec[104]; }
+            off += REC;
+        }
+        if existing.is_none() { key_idx = max_idx.wrapping_add(1).max(1); }
+
+        // 4) Build the 112-byte CONTAINER_MAP_RECORD for this slot.
+        let guid = fresh_container_guid();
+        let mut rec = vec![0u8; REC];
+        for (i, u) in guid.encode_utf16().enumerate() {   // wszGuid[40] UTF-16LE
+            if i * 2 + 2 > 80 { break; }
+            rec[i * 2] = (u & 0xff) as u8;
+            rec[i * 2 + 1] = (u >> 8) as u8;
+        }
+        rec[80] = 0x01;                                   // valid flag
+        rec[84] = (key_bits & 0xff) as u8;                // key size (LE u16)
+        rec[85] = (key_bits >> 8) as u8;
+        rec[86] = slot;
+        rec[100] = slot;                                  // trailer
+        rec[101] = algorithm;
+        rec[102] = algorithm;                             // size-code (07 07 for RSA-2048)
+        rec[103] = 0x00;
+        rec[104] = key_idx;
+        rec[105] = 0xc1;
+        rec[106] = 0x5f;
+
+        match existing {
+            Some(o) => records[o..o + REC].copy_from_slice(&rec),
+            None => records.extend_from_slice(&rec),
+        }
+
+        // 5) Write 5FFF04 back with the Companion's framing: 53 82 <len> 81 82 <len> <records>.
+        //    libt2piv command-chains the >255-byte APDU automatically.
+        let inner = records.len();
+        let wrapped = inner + 4;
+        let mut put04 = vec![
+            0x5cu8, 0x03, 0x5f, 0xff, 0x04,
+            0x53, 0x82, (wrapped >> 8) as u8, (wrapped & 0xff) as u8,
+            0x81, 0x82, (inner >> 8) as u8, (inner & 0xff) as u8,
+        ];
+        put04.extend_from_slice(&records);
+        let sw04 = send(&[0x00, 0xdb, 0x3f, 0xff], &put04).0;
+        if sw04 != 0x9000 && sw04 >> 8 != 0x61 {
+            return Err(format!("writing the Windows container map (5FFF04) failed (status {sw04:04X})."));
+        }
+
+        // 6) Write the per-slot key-info object 5FFF03.
+        let v03 = [0x53u8, 0x08, 0x81, 0x06, 0x00, 0x01, key_idx, 0x00, 0x12, 0x00];
+        let sw03 = put([0x5f, 0xff, 0x03], &v03);
+        if sw03 != 0x9000 && sw03 >> 8 != 0x61 {
+            return Err(format!("writing the Windows key-info object (5FFF03) failed (status {sw03:04X})."));
+        }
         Ok(())
     }
 
