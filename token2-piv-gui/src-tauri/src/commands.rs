@@ -347,13 +347,13 @@ pub async fn generate_key(
         let public_key_pem = certs::spki_der(&k).map(|d| certs::to_pem("PUBLIC KEY", &d)).unwrap_or_default();
         Ok(Generated { algorithm: algorithm.clone(), public_key_pem })
     })?;
-    // Provision CHUID/CCC so the key is usable by the Windows PIV minidriver. Done in
-    // its own authenticated session (not inside the generate call) because the
-    // management-key auth does not reliably survive the key generation on this applet,
-    // which left the CHUID unwritten. This mirrors the CLI's authenticate -> set-chuid.
-    // The error is surfaced (not swallowed) so a failure is visible rather than silent.
-    with_piv_write(&state, &pin, |p| p.ensure_card_identity())
-        .map_err(|e| format!("The key was created, but writing the Windows CHUID/CCC failed: {e}. The key itself is fine; Windows may not open it until this succeeds."))?;
+    // Provision the Windows PIV+ minidriver container objects (5FFF04 map + 5FFF03
+    // key-info) so the key is usable on Windows - reversed from the Companion app, which
+    // writes these, not the standard CHUID/CCC. Done in its own authenticated session
+    // (not inside the generate call) because the management-key auth does not reliably
+    // survive key generation on this applet. The error is surfaced, not swallowed.
+    with_piv_write(&state, &pin, |p| p.provision_container(slot, algo))
+        .map_err(|e| format!("The key was created, but writing the Windows minidriver container objects failed: {e}. The key itself is fine; Windows may not open it until this succeeds."))?;
     Ok(out)
 }
 
@@ -495,9 +495,10 @@ pub async fn import_pfx(
                 "the device refused the key import (Admin PIN not accepted, or the slot is locked)".to_string()
             } else { e })
     })?;
-    // Provision CHUID/CCC in a fresh authenticated session (see generate_key).
-    with_piv_write(&state, &pin, |p| p.ensure_card_identity())
-        .map_err(|e| format!("The key was imported, but writing the Windows CHUID/CCC failed: {e}."))?;
+    // Provision the Windows minidriver container objects in a fresh authenticated
+    // session (see generate_key).
+    with_piv_write(&state, &pin, |p| p.provision_container(slot, algo))
+        .map_err(|e| format!("The key was imported, but writing the Windows minidriver container objects failed: {e}."))?;
     Ok(Imported {
         algorithm: crate::piv::algo_name(algo).to_string(),
         cert_written,
