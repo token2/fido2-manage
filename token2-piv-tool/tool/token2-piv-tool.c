@@ -2171,6 +2171,28 @@ static bool status(t2piv_state *state, enum enum_hash hash,
     fprintf(output_file, "PIN tries left:\t%d\n", tries);
   }
 
+  {
+    /* Warn if the factory-default management key (Admin PIN) is still in use:
+     * anyone with local access could then overwrite or erase keys in any slot
+     * (see set-mgm-key). Management-key authentication has no retry counter, so
+     * probing the default is safe. In PIN-protected mode the default does not
+     * authenticate, so no warning is shown. */
+    t2piv_config dcfg = {0};
+    static const char DEFAULT_MGM[] =
+      "865362865362865362865362865362865362865362865362";
+    if(t2piv_util_get_config(state, &dcfg) == T2PIV_OK &&
+       dcfg.mgm_type != T2PIV_CONFIG_MGM_PROTECTED) {
+      dcfg.mgm_len = sizeof(dcfg.mgm_key);
+      if(t2piv_hex_decode(DEFAULT_MGM, strlen(DEFAULT_MGM), dcfg.mgm_key, &dcfg.mgm_len) == T2PIV_OK &&
+         t2piv_authenticate2(state, dcfg.mgm_key, dcfg.mgm_len) == T2PIV_OK) {
+        fprintf(output_file,
+          "\nWARNING: this key still uses the DEFAULT management key (Admin PIN).\n"
+          "         Any local process can overwrite or erase keys in any slot without\n"
+          "         a prompt. Change it now:  token2-piv-tool -a set-mgm-key\n");
+      }
+    }
+  }
+
   if(output_file != stdout) {
     fclose(output_file);
   }

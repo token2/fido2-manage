@@ -104,6 +104,7 @@ fn main() {
             delete_slot,
             piv_supports_key_delete,
             piv_fp_binding_status,
+            piv_default_admin_key,
             piv_set_fp_binding,
             attest,
             verify_attestation,

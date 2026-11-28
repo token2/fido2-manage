@@ -309,6 +309,15 @@ async function openPivFpDialog() {
   card.scrollIntoView({ behavior: "smooth", block: "center" });
   card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 1200);
 }
+async function loadPivDefaultWarn() {
+  // Warn when the factory-default Admin PIN (PIV management key) is still in use:
+  // any local process could then overwrite/erase slot keys without a prompt.
+  const w = $("#piv-default-warn"); if (!w) return;
+  if (!info) { w.hidden = true; return; }
+  let isDefault = false;
+  try { isDefault = await invoke("piv_default_admin_key"); } catch (_) {}
+  w.hidden = !isDefault;
+}
 async function loadPivFpCard() {
   const card = $("#piv-fp-card"); if (!card) return;
   if (!info) { card.hidden = true; return; }
@@ -750,7 +759,7 @@ function setMode(m) {
   // board
   $("#empty").hidden = !piv || !!info;
   $("#slots").hidden = !piv || !info;
-  if (piv && info) { renderInfo(); loadPivFpCard(); } else { const c=$("#piv-fp-card"); if (c) c.hidden = true; }
+  if (piv && info) { renderInfo(); loadPivFpCard(); loadPivDefaultWarn(); } else { const c=$("#piv-fp-card"); if (c) c.hidden = true; const w=$("#piv-default-warn"); if (w) w.hidden = true; }
   $("#fido-empty").hidden = !fido || !!fidoInfo;
   $("#fido-board").hidden = !fido || !fidoInfo;
   if (fido && fidoInfo) { renderFidoInfo(); loadFidoDevices().then(() => renderFidoInfo()).catch(()=>{}); showFidoSub(); }

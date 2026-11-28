@@ -234,6 +234,9 @@
       <div class="exp-note" style="background:var(--note-bg);border:1px solid var(--note-border);color:var(--note-ink);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
         ⚠️ Certificate management is currently <b>experimental</b>. Some issues have been reported and are being worked on.
       </div>
+      <div id="piv-default-warn" hidden style="background:#fdecea;border:1px solid #f5c2c0;color:#7f1d1d;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+        🔑 This key still uses the <b>default Admin PIN</b> (PIV management key). Any local program could overwrite or erase keys in any slot without a prompt. Use <b>Change Admin PIN</b> to set your own.
+      </div>
       <h2>Slots</h2>
       <div id="primary-slots" class="tiles"></div>
       <details id="retired">

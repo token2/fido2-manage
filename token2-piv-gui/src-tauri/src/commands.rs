@@ -688,3 +688,14 @@ pub fn piv_fp_binding_status(state: State<AppState>) -> R<FpBinding> {
 pub fn piv_set_fp_binding(state: State<AppState>, pin: String, enable: bool) -> R<()> {
     with_piv(&state, |p| p.set_fingerprint_binding(&pin, enable))
 }
+
+/// True if the PIV applet still accepts the factory-default management key (Admin
+/// PIN). When it does, any local process can overwrite or erase keys in any slot
+/// without a prompt, so the UI shows a warning urging the user to change it.
+/// Management-key authentication has no retry counter, so probing is safe; in
+/// PIN-protected mode the default does not authenticate and this returns false.
+#[tauri::command]
+pub fn piv_default_admin_key(state: State<AppState>) -> R<bool> {
+    let default = hex::decode(DEFAULT_ADMIN_KEY).unwrap();
+    with_piv(&state, |p| Ok(p.authenticate(&default).is_ok()))
+}
